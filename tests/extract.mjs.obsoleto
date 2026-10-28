@@ -1,0 +1,13 @@
+// Pulls the private validation helpers out of LessonView.tsx so they can be unit-tested
+// without changing the app. (Suggestion: move them to src/utils/exerciseChecks.ts.)
+import fs from 'node:fs';
+const src = fs.readFileSync(new URL('../src/components/block1/LessonView.tsx', import.meta.url), 'utf8');
+const start = src.indexOf('const TARGET_BLOCH');
+const end = src.indexOf('interface LessonViewProps');
+let body = src.slice(start, end)
+  .replace('const TARGET_BLOCH', 'export const TARGET_BLOCH')
+  .replace('const TARGET_CIRCUITS', 'export const TARGET_CIRCUITS')
+  .replace('function outputMatchesExercise', 'export function outputMatchesExercise');
+fs.mkdirSync(new URL('./out/', import.meta.url), { recursive: true });
+fs.writeFileSync(new URL('./out/lessonChecks.ts', import.meta.url),
+  `import type { BlochCoordinates } from '../../src/utils/quantumMath';\nimport type { CircuitOperation } from '../../src/components/quantum/CircuitDiagram';\n` + body);

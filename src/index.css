@@ -1,0 +1,108 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Inter', sans-serif;
+  overflow-x: hidden;
+  background: var(--page-bg);
+  color: var(--text-main);
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+:root {
+  color-scheme: dark;
+  --page-bg: #081321;
+  --surface: #101f31;
+  --surface-raised: #17283d;
+  --surface-sunken: #091625;
+  --line: #263a52;
+  --text-main: #e6eef8;
+  --text-soft: #bdcadd;
+  --text-muted: #91a2b9;
+  --accent-blue: #4f7fd2;
+  --accent-teal: #1ba3a9;
+  --accent-violet: #8470d7;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --page-bg: #eef3f8;
+  --surface: #ffffff;
+  --surface-raised: #f7f9fc;
+  --surface-sunken: #e7eef6;
+  --line: #d4dfeb;
+  --text-main: #1c2d43;
+  --text-soft: #30445d;
+  --text-muted: #5c6d83;
+  --accent-blue: #426fbe;
+  --accent-teal: #087f8a;
+  --accent-violet: #6856b7;
+}
+
+#root { min-height: 100vh; background: var(--page-bg); color: var(--text-main); }
+
+/* Keep the existing utility-based layout, while mapping its surfaces to the chosen theme. */
+:root[data-theme='dark'] .bg-slate-950,
+:root[data-theme='dark'] [class*='bg-slate-950/'] { background-color: var(--surface-sunken) !important; }
+:root[data-theme='dark'] .bg-slate-900,
+:root[data-theme='dark'] [class*='bg-slate-900/'] { background-color: var(--surface) !important; }
+:root[data-theme='dark'] .bg-slate-800,
+:root[data-theme='dark'] [class*='bg-slate-800/'] { background-color: var(--surface-raised) !important; }
+:root[data-theme='dark'] .border-slate-900,
+:root[data-theme='dark'] .border-slate-800,
+:root[data-theme='dark'] .border-slate-700,
+:root[data-theme='dark'] [class*='border-slate-800/'] { border-color: var(--line) !important; }
+
+:root[data-theme='light'] .bg-slate-950,
+:root[data-theme='light'] [class*='bg-slate-950/'] { background-color: var(--surface-sunken) !important; }
+:root[data-theme='light'] .bg-slate-900,
+:root[data-theme='light'] [class*='bg-slate-900/'] { background-color: var(--surface) !important; }
+:root[data-theme='light'] .bg-slate-800,
+:root[data-theme='light'] [class*='bg-slate-800/'] { background-color: var(--surface-raised) !important; }
+:root[data-theme='light'] .border-slate-900,
+:root[data-theme='light'] .border-slate-800,
+:root[data-theme='light'] .border-slate-700,
+:root[data-theme='light'] [class*='border-slate-800/'] { border-color: var(--line) !important; }
+:root[data-theme='light'] .text-white,
+:root[data-theme='light'] .text-slate-100,
+:root[data-theme='light'] .text-slate-200 { color: var(--text-main) !important; }
+:root[data-theme='light'] .text-slate-300 { color: var(--text-soft) !important; }
+:root[data-theme='light'] .text-slate-400,
+:root[data-theme='light'] .text-slate-500,
+:root[data-theme='light'] .text-slate-600 { color: var(--text-muted) !important; }
+:root[data-theme='light'] .text-indigo-300,
+:root[data-theme='light'] .text-indigo-400,
+:root[data-theme='light'] .text-violet-200,
+:root[data-theme='light'] .text-violet-300 { color: var(--accent-violet) !important; }
+:root[data-theme='light'] .text-cyan-200,
+:root[data-theme='light'] .text-cyan-300,
+:root[data-theme='light'] .text-cyan-400,
+:root[data-theme='light'] .text-teal-300 { color: var(--accent-teal) !important; }
+:root[data-theme='light'] .bg-indigo-600,
+:root[data-theme='light'] .bg-indigo-700 { background-color: var(--accent-blue) !important; }
+:root[data-theme='light'] .bg-cyan-700 { background-color: var(--accent-teal) !important; }
+:root[data-theme='light'] .border-indigo-500,
+:root[data-theme='light'] .border-cyan-500 { border-color: var(--accent-blue) !important; }
+:root[data-theme='light'] .katex { color: #273b59; }
+
+.formula-card {
+  margin: 0.75rem 0;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: var(--surface-sunken);
+  padding: 1rem 1.25rem;
+  text-align: center;
+  color: var(--accent-violet);
+}
+.math-inline { display: inline-block; padding: 0 0.08rem; color: #a5c9ff; }
+:root[data-theme='light'] .math-inline { color: #395f9c; }
+.math-display { display: block; overflow-x: auto; }
+.math-fallback { font-family: 'Fira Code', monospace; color: var(--accent-violet); }
+.math-content .katex-display { margin: 0; }
+
+button:focus-visible, a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent-teal);
+  outline-offset: 2px;
+}
