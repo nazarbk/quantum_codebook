@@ -62,6 +62,7 @@ export function readPennyLaneCircuit(source: string): CircuitOperation[] {
   const clean = stripCommentsAndStrings(source);
   const variables = collectAssignments(clean);
   const region = qnodeBody(clean);
+  const deviceWires = readDeviceWires(clean);
   const operations: CircuitOperation[] = [];
 
   const callPattern = /qml\s*\.\s*([A-Za-z_]\w*)\s*\(/g;
@@ -73,9 +74,12 @@ export function readPennyLaneCircuit(source: string): CircuitOperation[] {
     const args = region.slice(argsStart, argsEnd);
 
     if (MEASUREMENTS.has(name)) {
-      const inner = args.match(/qml\s*\.\s*\w+\s*\(([^)]*)\)/);
-      const wire = inner ? readWires(splitArgs(inner[1]), 0)[0] : readWires(splitArgs(args), 0)[0];
-      operations.push({ id: 'M', label: 'M', wire: wire ?? 0 });
+      // Observables inside (qml.PauliZ(0) @ qml.PauliZ(1)) give their wires; otherwise wires=[...];
+      // with neither (qml.sample(), qml.probs()) every wire of the device is measured.
+      const observableWires = [...args.matchAll(/qml\s*\.\s*\w+\s*\(([^)]*)\)/g)].flatMap((m) => readWires(splitArgs(m[1]), 0));
+      const listed = observableWires.length ? observableWires : readWires(splitArgs(args), 0);
+      const measured = listed.length ? listed : Array.from({ length: deviceWires }, (_, index) => index);
+      for (const wire of [...new Set(measured)]) operations.push({ id: 'M', label: 'M', wire });
       callPattern.lastIndex = argsEnd; // do not read the observable (e.g. PauliZ) as a gate
       continue;
     }
@@ -122,8 +126,9 @@ export function readPennyLaneCircuit(source: string): CircuitOperation[] {
         operations.push({ id: rotationId(idName, angle), label: `${gate.label}(${formatAngle(angle)})`, wire });
       }
     } else if (gate.wires === 2) {
-      // The diagram draws single-wire boxes, so a two-qubit gate is shown on its first wire.
-      operations.push({ id: `${gate.label}:${wires.join(',')}`, label: gate.label, wire });
+      // CNOT/CZ: first wire is the control, second the target. SWAP exchanges both.
+      const [first = 0, second = first + 1] = wires;
+      operations.push({ id: `${gate.label}:${first},${second}`, label: gate.label, wire: first, wires: [first, second] });
     } else {
       operations.push({ id: gate.label, label: gate.label, wire });
     }
@@ -222,6 +227,13 @@ function readWires(parts: string[], paramCount: number): number[] {
   const raw = keyword ? keyword.replace(/^wires\s*=\s*/, '') : parts.filter((part) => !/^\w+\s*=/.test(part))[paramCount];
   if (!raw) return [];
   return (raw.match(/\d+/g) || []).map(Number);
+}
+
+/** Number of wires declared in qml.device(..., wires=N), or 1 if unknown. */
+function readDeviceWires(source: string): number {
+  const match = source.match(/qml\s*\.\s*device\s*\(([^)]*)\)/);
+  const wires = match?.[1].match(/wires\s*=\s*(\d+)/);
+  return wires ? Math.max(1, Math.min(8, Number(wires[1]))) : 1;
 }
 
 function collectAssignments(source: string): Map<string, string> {

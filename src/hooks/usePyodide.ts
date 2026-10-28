@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { QuantumSDK, WorkerStatus, WorkerToMainMessage } from '../types/worker';
+import type { QuantumSDK, Samples, WorkerStatus, WorkerToMainMessage } from '../types/worker';
 import type { Language } from '../types/language';
 
 const MESSAGES = {
@@ -42,7 +42,7 @@ export function usePyodide(defaultSdk: QuantumSDK = 'pennylane', lang: Language 
   const [output, setOutput] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [statevector, setStatevector] = useState<[number, number][] | undefined>();
-  const [samples, setSamples] = useState<number[] | undefined>();
+  const [samples, setSamples] = useState<Samples | undefined>();
   const [isExecuting, setIsExecuting] = useState<boolean>(false);
 
   const workerRef = useRef<Worker | null>(null);

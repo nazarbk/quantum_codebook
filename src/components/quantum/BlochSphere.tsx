@@ -140,11 +140,14 @@ export const BlochSphere: React.FC<BlochSphereProps> = ({
       const targetVec = getThreeVector(currentCoords.current);
       const length = targetVec.length();
 
-      if (length > 0) {
+      // A reduced (entangled) qubit can have a short or even zero-length Bloch vector.
+      const headLength = Math.min(0.2, length * 0.5);
+      arrowHelper.visible = length > 0.02;
+      if (arrowHelper.visible) {
         arrowHelper.setDirection(targetVec.clone().normalize());
-        arrowHelper.setLength(length, 0.2, 0.12);
-        pointMesh.position.copy(targetVec);
+        arrowHelper.setLength(length, headLength, Math.min(0.12, headLength * 0.6));
       }
+      pointMesh.position.copy(targetVec);
 
       const goal = targetGoalCoords.current;
       targetArrow.visible = Boolean(goal);

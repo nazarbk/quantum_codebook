@@ -5,10 +5,12 @@ import { BlochSphere } from '../quantum/BlochSphere';
 import { HintPanel } from '../editor/HintPanel';
 import { MathRenderer } from '../common/MathRenderer';
 import { BlochCoordinates, stateToBlochCoordinates } from '../../utils/quantumMath';
+import type { Samples } from '../../types/worker';
 import { CheckFailure, TARGET_BLOCH, TARGET_CIRCUITS, checkExercise } from '../../utils/exerciseChecks';
 import { Language } from '../../types/language';
 import { Theme } from '../../types/theme';
 import { CircuitWorkspace } from '../quantum/CircuitWorkspace';
+import { MultiQubitStateView } from '../quantum/MultiQubitStateView';
 import { compareCircuit, readPennyLaneCircuit } from '../../utils/pennylaneCircuit';
 
 const FEEDBACK: Record<CheckFailure, Record<Language, string>> = {
@@ -53,6 +55,8 @@ export const LessonView: React.FC<LessonViewProps> = ({
   
   const [blochCoords, setBlochCoords] = useState<BlochCoordinates>({ x: 0, y: 0, z: 1 });
   const [lastOutput, setLastOutput] = useState<string>('');
+  /** Last state with more than one qubit (shown with the multi-qubit view instead of one sphere). */
+  const [multiQubitState, setMultiQubitState] = useState<[number, number][] | null>(null);
   const [exerciseFeedback, setExerciseFeedback] = useState<string>('');
   const [visualization, setVisualization] = useState<'bloch' | 'circuit' | 'both'>('bloch');
   const [showBlochTarget, setShowBlochTarget] = useState(false);
@@ -77,6 +81,7 @@ export const LessonView: React.FC<LessonViewProps> = ({
     setExerciseFeedback('');
     setLastOutput('');
     setBlochCoords({ x: 0, y: 0, z: 1 });
+    setMultiQubitState(null);
     setOpenTheorySections([0]);
     setVisualization('bloch');
     setShowBlochTarget(false);
@@ -84,10 +89,13 @@ export const LessonView: React.FC<LessonViewProps> = ({
     setEditorCode(currentLesson.exercise.starterCode.pennylane[lang]);
   }, [currentLesson.slug]);
 
-  const handleExecutionSuccess = (output: string, statevector?: [number, number][], samples?: number[]) => {
+  const handleExecutionSuccess = (output: string, statevector?: [number, number][], samples?: Samples) => {
     setLastOutput(output);
     if (statevector?.length === 2) {
       setBlochCoords(stateToBlochCoordinates([statevector[0], statevector[1]]));
+      setMultiQubitState(null);
+    } else if (statevector && statevector.length > 2) {
+      setMultiQubitState(statevector);
     }
     const check = checkExercise(currentLesson.slug, statevector, samples);
     if (!check.passed) {
@@ -301,6 +309,9 @@ export const LessonView: React.FC<LessonViewProps> = ({
             </div>
             {(visualization === 'bloch' || visualization === 'both') && (
               <div className={visualization === 'both' ? 'grid grid-cols-1 xl:grid-cols-2 gap-3' : ''}>
+                {multiQubitState ? (
+                  <MultiQubitStateView state={multiQubitState} lang={lang} theme={theme} />
+                ) : (
                 <div>
                   <BlochSphere coordinates={blochCoords} targetCoordinates={showBlochTarget ? targetBloch : undefined} size={280} theme={theme} />
                   <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-slate-400">
@@ -308,6 +319,7 @@ export const LessonView: React.FC<LessonViewProps> = ({
                     {showBlochTarget && <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-cyan-400" />{lang === 'es' ? 'Estado objetivo' : 'Target state'}</span>}
                   </div>
                 </div>
+                )}
                 {visualization === 'both' && <CircuitWorkspace
                   actual={currentCircuit}
                   target={targetCircuit}

@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
 import { QUIZ_BLOCK_1 } from '../../data/block1Data';
 import { Language } from '../../types/language';
+import { shuffledIndices } from '../../utils/shuffle';
+
+/** A fresh option order per question, so the right answer is not always in the same position. */
+const makeOptionOrders = () => Object.fromEntries(QUIZ_BLOCK_1.map((q) => [q.id, shuffledIndices(q.options.es.length)])) as Record<number, number[]>;
 
 interface QuizViewProps {
   quizPassed: boolean;
@@ -16,6 +20,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
   lang,
 }) => {
   const [userAnswers, setUserAnswers] = useState<Record<number, number>>({});
+  const [optionOrders, setOptionOrders] = useState<Record<number, number[]>>(makeOptionOrders);
   const [submitted, setSubmitted] = useState<boolean>(false);
 
   const handleSelectOption = (questionId: number, optionIdx: number) => {
@@ -40,6 +45,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
   const resetQuiz = () => {
     setUserAnswers({});
     setSubmitted(false);
+    setOptionOrders(makeOptionOrders());
   };
 
   const score = submitted ? calculateScore() : 0;
@@ -82,7 +88,8 @@ export const QuizView: React.FC<QuizViewProps> = ({
               </h3>
 
               <div className="grid grid-cols-1 gap-2">
-                {q.options[lang].map((opt, optIdx) => {
+                {(optionOrders[q.id] ?? q.options[lang].map((_, index) => index)).map((optIdx) => {
+                  const opt = q.options[lang][optIdx];
                   let buttonStyle = 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800';
 
                   if (selectedOption === optIdx) {

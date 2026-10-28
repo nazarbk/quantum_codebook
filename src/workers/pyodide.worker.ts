@@ -1,4 +1,4 @@
-import type { MainToWorkerMessage, QuantumSDK, WorkerStatus } from '../types/worker';
+import type { MainToWorkerMessage, QuantumSDK, Samples, WorkerStatus } from '../types/worker';
 
 const PYODIDE_VERSION = '0.29.4';
 const PYODIDE_BASE_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
@@ -143,7 +143,9 @@ try:
     _candidate_state = _user_globals.get('state')
     if _candidate_state is not None:
         _candidate_state = _np.asarray(_candidate_state).reshape(-1)
-        if _candidate_state.size == 2 and _np.all(_np.isfinite(_candidate_state)):
+        # 1 to 6 qubits: length must be a power of two (2, 4, ..., 64)
+        _n = _candidate_state.size
+        if 2 <= _n <= 64 and (_n & (_n - 1)) == 0 and _np.all(_np.isfinite(_candidate_state)):
             _state_json = _json.dumps([[float(_np.real(v)), float(_np.imag(v))] for v in _candidate_state])
 except Exception:
     pass
@@ -151,8 +153,10 @@ _samples_json = None
 try:
     _candidate_samples = _user_globals.get('samples')
     if _candidate_samples is not None:
-        _candidate_samples = _np.asarray(_candidate_samples, dtype=float).reshape(-1)
-        if 0 < _candidate_samples.size <= 100000 and _np.all(_np.isfinite(_candidate_samples)):
+        _candidate_samples = _np.asarray(_candidate_samples, dtype=float)
+        # 1 qubit: a flat list of outcomes. Several qubits: one row of bits per shot.
+        _valid_shape = _candidate_samples.ndim == 1 or (_candidate_samples.ndim == 2 and _candidate_samples.shape[1] <= 6)
+        if _valid_shape and 0 < _candidate_samples.size <= 100000 and _np.all(_np.isfinite(_candidate_samples)):
             _samples_json = _json.dumps(_candidate_samples.tolist())
 except Exception:
     pass
@@ -166,9 +170,9 @@ except Exception:
     const returnedValue = pyodide!.globals.get('__execution_result__');
     const stateJson = pyodide!.globals.get('_state_json');
     const samplesJson = pyodide!.globals.get('_samples_json');
-    let samples: number[] | undefined;
+    let samples: Samples | undefined;
     if (typeof samplesJson === 'string') {
-      try { samples = JSON.parse(samplesJson) as number[]; } catch { samples = undefined; }
+      try { samples = JSON.parse(samplesJson) as Samples; } catch { samples = undefined; }
     }
     let statevector: [number, number][] | undefined;
     if (typeof stateJson === 'string') {

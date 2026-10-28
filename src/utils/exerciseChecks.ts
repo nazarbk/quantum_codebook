@@ -1,6 +1,7 @@
 import type { BlochCoordinates } from './quantumMath';
 import type { CircuitOperation } from '../components/quantum/CircuitDiagram';
 import { rotationId } from './pennylaneCircuit';
+import type { Samples } from '../types/worker';
 
 /** Complex amplitude as [re, im], the format the Pyodide worker returns. */
 export type Amplitude = [number, number];
@@ -43,18 +44,24 @@ export type CheckResult = { passed: true } | { passed: false; reason: CheckFailu
 const pass: CheckResult = { passed: true };
 const fail = (reason: CheckFailure): CheckResult => ({ passed: false, reason });
 
-function isValidQubitState(state: Amplitude[] | undefined): state is [Amplitude, Amplitude] {
-  if (!state || state.length !== 2) return false;
+/** A normalized state vector of 1 or more qubits (length 2ⁿ, |a|² summing to 1). */
+export function isValidStateVector(state: Amplitude[] | undefined): state is Amplitude[] {
+  if (!state || state.length < 2 || !Number.isInteger(Math.log2(state.length))) return false;
   if (!state.every((a) => a.length === 2 && a.every(Number.isFinite))) return false;
   const norm = state.reduce((sum, [re, im]) => sum + re * re + im * im, 0);
   return Math.abs(norm - 1) < 1e-3;
 }
 
-/** |⟨target|ψ⟩|², insensitive to global phase. */
-export function fidelity(target: [Amplitude, Amplitude], state: [Amplitude, Amplitude]): number {
+function isValidQubitState(state: Amplitude[] | undefined): state is [Amplitude, Amplitude] {
+  return isValidStateVector(state) && state.length === 2;
+}
+
+/** |⟨target|ψ⟩|² for states of any size, insensitive to global phase (0 if sizes differ). */
+export function fidelity(target: Amplitude[], state: Amplitude[]): number {
+  if (target.length !== state.length) return 0;
   let re = 0;
   let im = 0;
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < target.length; i++) {
     const [tr, ti] = target[i];
     const [sr, si] = state[i];
     // conj(t) * s
@@ -62,6 +69,11 @@ export function fidelity(target: [Amplitude, Amplitude], state: [Amplitude, Ampl
     im += tr * si - ti * sr;
   }
   return re * re + im * im;
+}
+
+/** True when `state` matches `target` up to global phase. */
+export function matchesState(target: Amplitude[], state: Amplitude[] | undefined, threshold = FIDELITY_THRESHOLD): boolean {
+  return isValidStateVector(state) && fidelity(target, state) >= threshold;
 }
 
 export function probabilityOfZero(state: [Amplitude, Amplitude]): number {
@@ -86,11 +98,11 @@ export function zeroFrequency(samples: number[]): number | null {
  * Verifies a lesson exercise from the data the simulator actually produced (the `state`
  * and `samples` variables), not from printed text, so a bare print() cannot pass it.
  */
-export function checkExercise(slug: string, statevector?: Amplitude[], samples?: number[]): CheckResult {
+export function checkExercise(slug: string, statevector?: Amplitude[], samples?: Samples): CheckResult {
   if (slug === 'medida-y-colapso') {
     if (!samples || samples.length === 0) return fail('missing-samples');
-    if (samples.length !== SHOTS_EXPECTED) return fail('wrong-result');
-    const frequency = zeroFrequency(samples);
+    if (samples.length !== SHOTS_EXPECTED || Array.isArray(samples[0])) return fail('wrong-result');
+    const frequency = zeroFrequency(samples as number[]);
     if (frequency === null) return fail('wrong-result');
     return frequency >= 0.4 && frequency <= 0.6 ? pass : fail('wrong-result');
   }

@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { readPennyLaneCircuit, compareCircuit, evaluateExpression, formatAngle, rotationId } from '../src/utils/pennylaneCircuit';
 import { translateStarterCode } from '../src/utils/localizedCode';
-import { stateToBlochCoordinates } from '../src/utils/quantumMath';
+import { shuffledIndices } from '../src/utils/shuffle';
+import { stateToBlochCoordinates, reducedBlochVector, blochLength, probabilities, qubitCount, basisLabel } from '../src/utils/quantumMath';
+import { matchesState, isValidStateVector } from '../src/utils/exerciseChecks';
+import { layoutColumns } from '../src/utils/circuitLayout';
 import { LESSONS_BLOCK_1, QUIZ_BLOCK_1, MINI_PROJECT_BLOCK_1 } from '../src/data/block1Data';
 import { PREPARED_HINTS } from '../src/data/preparedHints';
 import { COURSE_BLOCKS } from '../src/data/courseBlocks';
@@ -183,10 +186,17 @@ describe('Integridad de contenidos', () => {
       assert.ok(q.correctAnswer >= 0 && q.correctAnswer < q.options.es.length, `q${q.id}`);
     }
   });
-  test('[LIMITACIÓN] quiz: la respuesta correcta nunca es la opción A (patrón explotable)', () => {
-    const positions = new Set(QUIZ_BLOCK_1.map((q) => q.correctAnswer));
-    assert.ok(positions.has(0), `posiciones usadas: ${[...positions].sort()}`);
+  test('quiz: las opciones se barajan y la correcta cae en todas las posiciones', () => {
+    let seed = 42; const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const positions = new Set<number>();
+    for (let attempt = 0; attempt < 50; attempt++) for (const q of QUIZ_BLOCK_1) {
+      const order = shuffledIndices(q.options.es.length, random);
+      assert.deepEqual([...order].sort(), q.options.es.map((_, i) => i));
+      positions.add(order.indexOf(q.correctAnswer));
+    }
+    assert.deepEqual([...positions].sort(), [0, 1, 2, 3]);
   });
+
   test('enlaces de bibliografía usan https', () => {
     for (const l of LESSONS_BLOCK_1) for (const b of l.bibliography) if (b.link) assert.match(b.link, /^https:\/\//, `${l.slug}: ${b.link}`);
   });
@@ -198,4 +208,56 @@ describe('Integridad de contenidos', () => {
   });
   test('mini-proyecto: print("P(|0>): 0.75") ya NO aprueba', () =>
     assert.ok(!checkBiasedQrng(MINI_PROJECT_BLOCK_1.targetBiasP0, runs['__miniproject__'].cheat.statevector ?? undefined).passed));
+});
+
+describe('Motor multi-qubit (preparación del Bloque 2)', () => {
+  const bell = runs['__bell__'].statevector as [number, number][];
+  const product = runs['__product__'].statevector as [number, number][];
+  test('el worker/simulador devuelve estados de 2 qubits (4 amplitudes)', () => {
+    assert.equal(bell.length, 4); assert.equal(qubitCount(bell), 2); assert.ok(isValidStateVector(bell));
+  });
+  test('orden de PennyLane: el cable 0 es el bit más significativo', () => {
+    assert.deepEqual([0, 1, 2, 3].map((i) => basisLabel(i, 2)), ['00', '01', '10', '11']);
+    // H en q0 y X en q1 → |+⟩|1⟩ = (|01⟩ + |11⟩)/√2
+    assert.deepEqual(probabilities(product).map((p) => Math.round(p * 100) / 100), [0, 0.5, 0, 0.5]);
+  });
+  test('estado de Bell: probabilidades 1/2 en |00⟩ y |11⟩', () =>
+    assert.deepEqual(probabilities(bell).map((p) => Math.round(p * 100) / 100), [0.5, 0, 0, 0.5]));
+  test('estado de Bell: cada qubit por separado tiene vector de Bloch de longitud 0 (entrelazado)', () => {
+    for (const wire of [0, 1]) assert.ok(blochLength(reducedBlochVector(bell, wire)) < 1e-9);
+  });
+  test('estado producto: cada qubit conserva longitud 1 y apunta a su sitio', () => {
+    const q0 = reducedBlochVector(product, 0), q1 = reducedBlochVector(product, 1);
+    assert.ok(Math.abs(q0.x - 1) < 1e-9 && Math.abs(q1.z + 1) < 1e-9, JSON.stringify({ q0, q1 }));
+  });
+  test('reducedBlochVector coincide con stateToBlochCoordinates para 1 qubit', () => {
+    const st: [number, number][] = [[r2, 0], [0, r2]];
+    assert.deepEqual(reducedBlochVector(st, 0), stateToBlochCoordinates([st[0], st[1]]));
+  });
+  test('validación con fidelidad en 4 dimensiones (y fase global)', () => {
+    assert.ok(matchesState([[r2, 0], [0, 0], [0, 0], [r2, 0]], bell));
+    assert.ok(matchesState([[0, r2], [0, 0], [0, 0], [0, r2]], bell));            // i·|Φ+⟩
+    assert.ok(!matchesState([[r2, 0], [0, 0], [0, 0], [-r2, 0]], bell));          // |Φ−⟩
+    assert.ok(!matchesState([[r2, 0], [r2, 0]], bell));                           // tamaño distinto
+  });
+  test('muestras de 2 qubits: una fila de bits por disparo y siempre correlacionadas', () => {
+    const rows = runs['__bell_samples__'].samples as number[][];
+    assert.equal(rows.length, 1000);
+    assert.ok(rows.every((row) => row.length === 2 && row[0] === row[1]));
+    const zeros = rows.filter((row) => row[0] === 0).length / 1000;
+    assert.ok(zeros > 0.4 && zeros < 0.6, String(zeros));
+  });
+  test('lector de circuitos: CNOT con control y objetivo, y medida de todos los cables', () => {
+    const ops = readPennyLaneCircuit('dev = qml.device("default.qubit", wires=2)\n@qml.qnode(dev)\ndef c():\n    qml.H(0)\n    qml.CNOT(wires=[0, 1])\n    return qml.sample()');
+    assert.deepEqual(ops.map((o) => [o.label, o.wire, o.wires ?? null]), [['H', 0, null], ['CNOT', 0, [0, 1]], ['M', 0, null], ['M', 1, null]]);
+  });
+  test('lector de circuitos: CNOT invertido y medida de un producto de observables', () => {
+    const ops = readPennyLaneCircuit('qml.CNOT(wires=[1, 0])\nqml.expval(qml.PauliZ(0) @ qml.PauliZ(1))');
+    assert.deepEqual(ops.map((o) => o.wires ?? o.wire), [[1, 0], 0, 1]);
+  });
+  test('diagrama: puertas en qubits distintos comparten columna; CNOT ocupa ambos cables', () => {
+    const H0 = { id: 'H', label: 'H', wire: 0 }, X1 = { id: 'X', label: 'X', wire: 1 };
+    const CN = { id: 'CNOT:0,1', label: 'CNOT', wire: 0, wires: [0, 1] as [number, number] };
+    assert.deepEqual(layoutColumns([H0, X1, CN, { id: 'M', label: 'M', wire: 0 }, { id: 'M', label: 'M', wire: 1 }]), [0, 0, 1, 2, 2]);
+  });
 });

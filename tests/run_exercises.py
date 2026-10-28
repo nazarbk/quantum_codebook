@@ -14,9 +14,9 @@ def run(code):
     sv = None
     if st is not None:
         a = np.asarray(st).reshape(-1)
-        if a.size == 2: sv = [[float(v.real), float(v.imag)] for v in a]
+        if 2 <= a.size <= 64 and (a.size & (a.size - 1)) == 0: sv = [[float(v.real), float(v.imag)] for v in a]  # same rule as the worker
     smp = g.get("samples")
-    smp = [float(v) for v in np.asarray(smp, dtype=float).reshape(-1)] if smp is not None else None
+    smp = np.asarray(smp, dtype=float).tolist() if smp is not None else None  # flat (1 qubit) or rows (several), like the worker
     return {"stdout": out.getvalue(), "error": err, "statevector": sv, "samples": smp}
 def edit(slug, code):
     if slug == 'bit-vs-qubit': return code.replace("    qml.PauliX(wires=0)\n", "")
@@ -46,4 +46,35 @@ for slug, code in starters.items():
     res[slug] = {"starter": run(code), "solution": run(edit(slug, code)), "cheat": run(cheats[slug])}
     if slug in wrong: res[slug]["variant"] = run(wrong[slug]); res[slug]["variant_code"] = wrong[slug]
     res[slug]["solution_code"] = edit(slug, code)
+# --- Multi-qubit programs (Block 2 engine) ---
+BELL = """import pennylane as qml
+dev = qml.device("default.qubit", wires=2)
+@qml.qnode(dev)
+def circuit():
+    qml.Hadamard(wires=0)
+    qml.CNOT(wires=[0, 1])
+    return qml.state()
+state = circuit()
+"""
+BELL_SAMPLES = """import pennylane as qml
+dev = qml.device("default.qubit", wires=2, shots=1000)
+@qml.qnode(dev)
+def circuit():
+    qml.H(0)
+    qml.CNOT(wires=[0, 1])
+    return qml.sample(wires=[0, 1])
+samples = circuit()
+"""
+PRODUCT = """import pennylane as qml
+dev = qml.device("default.qubit", wires=2)
+@qml.qnode(dev)
+def circuit():
+    qml.H(0)
+    qml.X(1)
+    return qml.state()
+state = circuit()
+"""
+res["__bell__"] = run(BELL)
+res["__bell_samples__"] = run(BELL_SAMPLES)
+res["__product__"] = run(PRODUCT)
 print(json.dumps(res, ensure_ascii=False))

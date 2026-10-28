@@ -1,5 +1,8 @@
 export type QuantumSDK = 'pennylane';
 
+/** Shots from a user variable named `samples`: flat for 1 qubit, one row of bits per shot for several. */
+export type Samples = number[] | number[][];
+
 export type WorkerStatus = 
   | 'idle' 
   | 'loading_pyodide' 
@@ -25,7 +28,7 @@ export type WorkerToMainMessage =
         returnedValue?: string;
         statevector?: [number, number][];
         /** Values of a user variable named `samples` (e.g. qml.sample eigenvalues ±1). */
-        samples?: number[];
+        samples?: Samples;
         circuitSvg?: string;
         executionTimeMs: number;
       }

@@ -1,12 +1,13 @@
 {
-  "name": "quantum-codebook-bloque1",
+  "name": "quantum-codebook",
   "private": true,
   "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node tests/run.mjs"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",

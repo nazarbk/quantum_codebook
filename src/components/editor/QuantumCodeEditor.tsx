@@ -6,7 +6,7 @@ import { SdkSelector } from './SdkSelector';
 import { usePyodide } from '../../hooks/usePyodide';
 import { Language } from '../../types/language';
 import { LocalizedCode } from '../../types/block';
-import { WorkerStatus } from '../../types/worker';
+import { Samples, WorkerStatus } from '../../types/worker';
 import { translateStarterCode } from '../../utils/localizedCode';
 
 const UI = {
@@ -38,7 +38,7 @@ interface QuantumCodeEditorProps {
   initialSdk?: QuantumSDK;
   lang?: Language;
   theme?: Theme;
-  onCodeSuccess?: (output: string, statevector?: [number, number][], samples?: number[]) => void;
+  onCodeSuccess?: (output: string, statevector?: [number, number][], samples?: Samples) => void;
   onCodeChange?: (code: string) => void;
 }
 
