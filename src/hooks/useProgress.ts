@@ -1,106 +1,172 @@
-import { useState, useEffect } from 'react';
-import { UserProgress } from '../types/user';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { PROGRESS_TABLE, supabase } from '../lib/supabase';
+import {
+  BlockProgress,
+  CourseProgress,
+  blockProgressOf,
+  emptyBlockProgress,
+  mergeProgress,
+  normalizeProgress,
+} from '../utils/progress';
 
-const STORAGE_KEY = 'quantum_codebook_progress_v2';
+/** idle: nothing to sync (local mode) · saving/saved: account sync · error: last sync failed (kept locally, retried). */
+export type SyncStatus = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
 
-const initialProgress: UserProgress = {
-  completedLessons: [],
-  solvedExercises: [],
-  quizPassed: false,
-  quizScore: 0,
-  miniProjectCompleted: false,
-  totalXp: 0,
-  level: 1,
-};
+const LEGACY_KEY = 'quantum_codebook_progress_v2';
+const cacheKey = (userId: string | null) => `quantum_codebook_progress_v3:${userId ?? 'local'}`;
+const importedKey = (userId: string) => `quantum_codebook_guest_imported:${userId}`;
+const SYNC_DELAY_MS = 800;
 
-export function useProgress() {
-  const [progress, setProgress] = useState<UserProgress>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (!saved) return initialProgress;
-      const parsed = JSON.parse(saved) as Partial<UserProgress>;
-      const completedLessons = Array.isArray(parsed.completedLessons) ? parsed.completedLessons : [];
-      const legacyQuizResult = Boolean(parsed.quizPassed) && Number(parsed.quizScore) <= 2;
-      return {
-        ...initialProgress,
-        ...parsed,
-        completedLessons,
-        // Older builds marked an exercise solved after any successful run and
-        // let a single correct answer pass a two-question quiz. Keep earned
-        // lesson completions, but require fresh evidence for those old checks.
-        solvedExercises: Array.isArray(parsed.solvedExercises)
-          ? parsed.solvedExercises.filter((slug) => !legacyQuizResult || completedLessons.includes(slug))
-          : [],
-        quizPassed: legacyQuizResult ? false : Boolean(parsed.quizPassed),
-        quizScore: legacyQuizResult ? 0 : Number.isFinite(parsed.quizScore) ? parsed.quizScore! : 0,
-        totalXp: Number.isFinite(parsed.totalXp) ? parsed.totalXp! : 0,
-        level: Number.isFinite(parsed.level) ? parsed.level! : 1,
-      };
-    } catch {
-      return initialProgress;
-    }
-  });
+function readJson(key: string): unknown {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
 
+function writeJson(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage full or disabled: progress stays in memory (and in the account when signed in).
+  }
+}
+
+/** Progress kept in this browser for a user (or for the guest), migrating the old v2 format. */
+function loadCached(userId: string | null): CourseProgress {
+  const cached = readJson(cacheKey(userId));
+  if (cached) return normalizeProgress(cached);
+  if (!userId) return normalizeProgress(readJson(LEGACY_KEY));
+  return normalizeProgress(null);
+}
+
+/**
+ * Learner progress for the signed-in user (synced with Supabase) or for the guest in local mode.
+ * Every change is cached in localStorage at once and pushed to the account shortly after.
+ */
+export function useProgress(userId: string | null) {
+  const [progress, setProgress] = useState<CourseProgress>(() => loadCached(userId));
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(userId && supabase ? 'loading' : 'idle');
+  const [ready, setReady] = useState(!(userId && supabase));
+  const syncTimer = useRef<number | undefined>(undefined);
+  const userRef = useRef(userId);
+
+  // Load (and merge) when the user changes.
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
-    } catch {
-      // Progress remains available in memory when storage is disabled or full.
+    userRef.current = userId;
+    const local = loadCached(userId);
+    setProgress(local);
+    if (!userId || !supabase) {
+      setReady(true);
+      setSyncStatus('idle');
+      return;
     }
-  }, [progress]);
+    let cancelled = false;
+    setReady(false);
+    setSyncStatus('loading');
+    (async () => {
+      const { data, error } = await supabase!.from(PROGRESS_TABLE).select('data').eq('user_id', userId).maybeSingle();
+      if (cancelled) return;
+      let merged = local;
+      if (!error && data?.data) merged = mergeProgress(merged, normalizeProgress(data.data));
+      // First sign-in on this browser: bring along what the learner did before having an account.
+      if (!readJson(importedKey(userId))) {
+        merged = mergeProgress(merged, loadCached(null));
+        writeJson(importedKey(userId), true);
+      }
+      setProgress(merged);
+      writeJson(cacheKey(userId), merged);
+      setReady(true);
+      if (error) {
+        setSyncStatus('error');
+        return;
+      }
+      const { error: saveError } = await supabase!.from(PROGRESS_TABLE).upsert({ user_id: userId, data: merged, updated_at: new Date().toISOString() });
+      if (!cancelled) setSyncStatus(saveError ? 'error' : 'saved');
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
-  const markExerciseSolved = (slug: string) => {
-    setProgress((prev) => ({
-      ...prev,
-      solvedExercises: prev.solvedExercises.includes(slug) ? prev.solvedExercises : [...prev.solvedExercises, slug]
-    }));
-  };
+  const persist = useCallback((next: CourseProgress) => {
+    const currentUser = userRef.current;
+    writeJson(cacheKey(currentUser), next);
+    if (!currentUser || !supabase) return;
+    setSyncStatus('saving');
+    window.clearTimeout(syncTimer.current);
+    syncTimer.current = window.setTimeout(async () => {
+      const { error } = await supabase!.from(PROGRESS_TABLE).upsert({ user_id: currentUser, data: next, updated_at: new Date().toISOString() });
+      if (userRef.current === currentUser) setSyncStatus(error ? 'error' : 'saved');
+    }, SYNC_DELAY_MS);
+  }, []);
 
-  const markLessonComplete = (slug: string, xpReward: number) => {
-    setProgress((prev) => {
-      if (prev.completedLessons.includes(slug)) return prev;
-      const completedLessons = [...prev.completedLessons, slug];
-      const totalXp = prev.totalXp + xpReward;
-      return { ...prev, completedLessons, totalXp, level: Math.floor(totalXp / 150) + 1 };
+  useEffect(() => () => window.clearTimeout(syncTimer.current), []);
+
+  // Changes made by the learner are marked dirty and persisted after React commits them
+  // (never inside a state updater, which React may call twice).
+  const dirty = useRef(false);
+  useEffect(() => {
+    if (!dirty.current) return;
+    dirty.current = false;
+    persist(progress);
+  }, [progress, persist]);
+
+  const update = useCallback((change: (previous: CourseProgress) => CourseProgress) => {
+    setProgress((previous) => {
+      const next = change(previous);
+      if (next === previous) return previous;
+      dirty.current = true;
+      return { ...next, updatedAt: new Date().toISOString() };
     });
-  };
+  }, []);
 
-  const saveQuizResult = (score: number, maxScore: number, xpReward: number) => {
+  const updateBlock = useCallback((blockId: string, change: (block: BlockProgress) => BlockProgress) => {
+    update((previous) => {
+      const current = previous.blocks[blockId] ?? emptyBlockProgress();
+      const next = change(current);
+      return next === current ? previous : { ...previous, blocks: { ...previous.blocks, [blockId]: next } };
+    });
+  }, [update]);
+
+  const markExerciseSolved = useCallback((blockId: string, slug: string) => updateBlock(blockId, (block) =>
+    block.solvedExercises.includes(slug) ? block : { ...block, solvedExercises: [...block.solvedExercises, slug] }), [updateBlock]);
+
+  const markLessonComplete = useCallback((blockId: string, slug: string) => updateBlock(blockId, (block) =>
+    block.completedLessons.includes(slug) ? block : { ...block, completedLessons: [...block.completedLessons, slug] }), [updateBlock]);
+
+  const saveQuizResult = useCallback((blockId: string, score: number, maxScore: number) => updateBlock(blockId, (block) => {
     const passed = maxScore > 0 && score / maxScore >= 0.7;
-    setProgress((prev) => {
-      const totalXp = prev.totalXp + (passed && !prev.quizPassed ? xpReward : 0);
-      return {
-        ...prev,
-        totalXp,
-        quizPassed: prev.quizPassed || passed,
-        quizScore: Math.max(prev.quizScore, score),
-        level: Math.floor(totalXp / 150) + 1,
-      };
-    });
-  };
+    if (block.quizScore >= score && (block.quizPassed || !passed)) return block;
+    return { ...block, quizPassed: block.quizPassed || passed, quizScore: Math.max(block.quizScore, score) };
+  }), [updateBlock]);
 
-  const completeMiniProject = (xpReward: number) => {
-    setProgress((prev) => {
-      if (prev.miniProjectCompleted) return prev;
-      const totalXp = prev.totalXp + xpReward;
-      return { ...prev, miniProjectCompleted: true, totalXp, level: Math.floor(totalXp / 150) + 1 };
-    });
-  };
+  const completeMiniProject = useCallback((blockId: string) => updateBlock(blockId, (block) =>
+    block.miniProjectCompleted ? block : { ...block, miniProjectCompleted: true }), [updateBlock]);
 
-  // Helper: check if Block 1 prerequisites are met for unlocking Block 2
-  const canUnlockNextBlock = (totalLessonsInBlock: number = 6) => {
-    const completionRate = totalLessonsInBlock > 0
-      ? Math.min(progress.completedLessons.length, totalLessonsInBlock) / totalLessonsInBlock
-      : 0;
-    return completionRate >= 0.8 || (progress.quizPassed && progress.miniProjectCompleted);
-  };
+  const setNote = useCallback((key: string, text: string) => update((previous) => {
+    if ((previous.notes[key] ?? '') === text) return previous;
+    const notes = { ...previous.notes };
+    if (text.trim()) notes[key] = text;
+    else delete notes[key];
+    return { ...previous, notes };
+  }), [update]);
+
+  const setActiveBlock = useCallback((blockId: string) => update((previous) =>
+    previous.activeBlockId === blockId ? previous : { ...previous, activeBlockId: blockId }), [update]);
 
   return {
     progress,
+    ready,
+    syncStatus,
+    blockProgress: (blockId: string) => blockProgressOf(progress, blockId),
     markExerciseSolved,
     markLessonComplete,
     saveQuizResult,
     completeMiniProject,
-    canUnlockNextBlock,
+    setNote,
+    setActiveBlock,
   };
 }

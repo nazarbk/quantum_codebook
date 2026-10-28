@@ -1,4 +1,5 @@
-import { CircuitOperation } from '../components/quantum/CircuitDiagram';
+import type { CircuitOperation } from '../components/quantum/CircuitDiagram';
+import { layoutColumns } from './circuitLayout';
 
 /*
  * Reads the PennyLane operations written in the editor, without running the code, so the
@@ -245,6 +246,13 @@ function collectAssignments(source: string): Map<string, string> {
   return variables;
 }
 
+/** Numeric value of a variable assigned in the code (e.g. theta = np.pi / 3), or null. */
+export function readNumericVariable(source: string, name: string): number | null {
+  const variables = collectAssignments(stripCommentsAndStrings(source));
+  const expression = variables.get(name);
+  return expression === undefined ? null : evaluateExpression(expression, variables);
+}
+
 /* ----------------------------------------------------------------- tiny math evaluator */
 
 const FUNCTIONS: Record<string, (x: number) => number> = {
@@ -323,7 +331,21 @@ export interface CircuitProgress {
   isComplete: boolean;
 }
 
-export function compareCircuit(actual: CircuitOperation[], target: CircuitOperation[]): CircuitProgress {
+/**
+ * Canonical order: by diagram column, then by wire. Gates on different wires commute, so
+ * "H on q0 then X on q1" and "X on q1 then H on q0" become the same sequence.
+ */
+function canonical(operations: CircuitOperation[]): CircuitOperation[] {
+  const columns = layoutColumns(operations);
+  return operations
+    .map((operation, index) => ({ operation, column: columns[index], index }))
+    .sort((a, b) => a.column - b.column || a.operation.wire - b.operation.wire || a.index - b.index)
+    .map(({ operation }) => operation);
+}
+
+export function compareCircuit(actualInput: CircuitOperation[], targetInput: CircuitOperation[]): CircuitProgress {
+  const actual = canonical(actualInput);
+  const target = canonical(targetInput);
   const matched = target.filter((operation, index) => actual[index]?.id === operation.id && actual[index]?.wire === operation.wire).length;
   const remainingActual = [...actual];
   const missing = target.filter((operation) => {

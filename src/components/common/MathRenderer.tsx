@@ -33,11 +33,24 @@ function renderBlock(block: string, index: number): React.ReactNode {
   const heading = text.match(/^(#{1,4})\s+(.+)$/);
   if (heading) return <h3 key={index} className="mb-2 mt-4 text-sm font-bold text-cyan-200">{renderInline(heading[2], `heading-${index}`)}</h3>;
   if (text.startsWith('$$') && text.endsWith('$$')) return <div key={index} className="formula-card">{renderMath(text.slice(2, -2), true, `display-${index}`)}</div>;
-  const lines = text.split('\n');
-  if (lines.every((line) => /^\s*[-*]\s+/.test(line))) {
-    return <ul key={index} className="my-3 list-disc space-y-1 pl-5 text-slate-300">{lines.map((line, lineIndex) => <li key={lineIndex}>{renderInline(line.replace(/^\s*[-*]\s+/, ''), `list-${index}-${lineIndex}`)}</li>)}</ul>;
+  // A block may mix a lead-in sentence with a list: group consecutive lines by kind.
+  const kindOf = (line: string) => (/^\s*[-*]\s+/.test(line) ? 'ul' : /^\s*\d+[.)]\s+/.test(line) ? 'ol' : 'p');
+  const groups: { kind: 'ul' | 'ol' | 'p'; lines: string[] }[] = [];
+  for (const line of text.split('\n')) {
+    const kind = kindOf(line);
+    const last = groups[groups.length - 1];
+    if (last && last.kind === kind) last.lines.push(line);
+    else groups.push({ kind, lines: [line] });
   }
-  return <p key={index} className="my-2 leading-7 text-slate-300">{renderInline(text.replace(/\n/g, ' '), `paragraph-${index}`)}</p>;
+  const rendered = groups.map((group, groupIndex) => {
+    const key = `${index}-${groupIndex}`;
+    if (group.kind === 'p') return <p key={key} className="my-2 leading-7 text-slate-300">{renderInline(group.lines.join(' '), `paragraph-${key}`)}</p>;
+    const items = group.lines.map((line, lineIndex) => <li key={lineIndex}>{renderInline(line.replace(/^\s*(?:[-*]|\d+[.)])\s+/, ''), `list-${key}-${lineIndex}`)}</li>);
+    return group.kind === 'ul'
+      ? <ul key={key} className="my-3 list-disc space-y-1 pl-5 text-slate-300">{items}</ul>
+      : <ol key={key} className="my-3 list-decimal space-y-1 pl-5 text-slate-300">{items}</ol>;
+  });
+  return rendered.length === 1 ? rendered[0] : <React.Fragment key={index}>{rendered}</React.Fragment>;
 }
 
 export const MathRenderer: React.FC<MathRendererProps> = ({ content, className = '' }) => (

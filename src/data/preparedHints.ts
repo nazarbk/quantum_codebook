@@ -1,13 +1,6 @@
-import { Language } from '../types/language';
-import { HintLevel } from '../types/hints';
+import type { LocalizedHints } from '../types/hints';
 
-export interface PreparedHintCopy {
-  title: string;
-  guidance: string;
-  nextStep: string;
-}
-
-type LocalizedHints = Record<HintLevel, Record<Language, PreparedHintCopy>>;
+export type { PreparedHintCopy } from '../types/hints';
 
 export const PREPARED_HINTS: Record<string, LocalizedHints> = {
   'bit-vs-qubit': {

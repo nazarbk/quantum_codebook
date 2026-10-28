@@ -18,7 +18,22 @@ def run(code):
     smp = g.get("samples")
     smp = np.asarray(smp, dtype=float).tolist() if smp is not None else None  # flat (1 qubit) or rows (several), like the worker
     return {"stdout": out.getvalue(), "error": err, "statevector": sv, "samples": smp}
+TODO = lambda code, marker, lines: code.replace(next(l for l in code.split("\n") if marker in l), lines)
+
 def edit(slug, code):
+    # Block 2 reference solutions: replace the TODO line with the missing gates.
+    if slug == 'producto-tensorial': return TODO(code, "# TODO", "    qml.PauliX(wires=1)")
+    if slug == 'cnot': return TODO(code, "# TODO", "    qml.CNOT(wires=[0, 1])")
+    if slug == 'estados-bell': return TODO(code, "# TODO", "    qml.PauliX(wires=1)")
+    if slug == 'medida-parcial': return TODO(code, "# TODO", "    qml.CNOT(wires=[0, 1])")
+    if slug == 'no-clonacion': return TODO(code, "# TODO", "    qml.CNOT(wires=[0, 1])")
+    if slug == 'codificacion-superdensa': return TODO(code, "# TODO", "    qml.PauliX(wires=0)\n    qml.PauliZ(wires=0)")
+    if slug == 'teleportacion': return TODO(code, "# TODO", "    qml.CNOT(wires=[1, 2])\n    qml.CZ(wires=[0, 2])")
+    if slug == '__miniproject_block-2__':
+        code = code.replace("theta = 0", "theta = 2.1").replace("phi = 0", "phi = np.pi / 4")
+        code = TODO(code, "par entrelazado", "    qml.Hadamard(wires=1)\n    qml.CNOT(wires=[1, 2])")
+        code = TODO(code, "operaciones de Alice", "    qml.CNOT(wires=[0, 1])\n    qml.Hadamard(wires=0)")
+        return TODO(code, "correcciones de Bob", "    qml.CNOT(wires=[1, 2])\n    qml.CZ(wires=[0, 2])")
     if slug == 'bit-vs-qubit': return code.replace("    qml.PauliX(wires=0)\n", "")
     if slug == 'vector-estado-born': return code.replace("    return qml.state()", "    qml.Hadamard(wires=0)\n    return qml.state()")
     if slug == 'esfera-de-bloch': return code.replace("    return qml.state()", "    qml.S(wires=0)\n    return qml.state()")
@@ -26,6 +41,14 @@ def edit(slug, code):
     if slug in ('puertas-rotacion-fase', '__miniproject__'): return code.replace("theta = 0", "theta = np.pi/3")
     if slug == 'medida-y-colapso': return code.replace("    return qml.sample", "    qml.Hadamard(wires=0)\n    return qml.sample")
 cheats = {
+  'producto-tensorial': 'print("|01>: 0.7071  P = 0.500")\nprint("|11>: 0.7071  P = 0.500")',
+  'cnot': 'print("Estado final: |10>")',
+  'estados-bell': 'print("|01>: 0.7071")\nprint("|10>: 0.7071")',
+  'medida-parcial': 'print("Coinciden en todos los disparos: True")',
+  'no-clonacion': 'print("Solapamiento con el par de Bell |Phi+>: 1.000")',
+  'codificacion-superdensa': 'print("Bob recibe: 11 (probabilidad 1.000)")',
+  'teleportacion': 'print("P(q2 = 0) = 0.750")',
+  '__miniproject_block-2__': 'theta = 2.1\nphi = 0.8\nprint("Bloch de q2 (Bob): [0.6 0.6 -0.5]")',
   'bit-vs-qubit': 'print("α (|0>): 1")\nprint("β (|1>): 0")',
   'vector-estado-born': 'print("P(|0>): 0.5")',
   'esfera-de-bloch': 'print("+0.7j")',
@@ -36,6 +59,10 @@ cheats = {
 }
 # Wrong-but-accepted cases: physically different state that still passes the regex.
 wrong = {
+  # Bob prepares the state himself instead of teleporting it: q2 is right but q0, q1 are not |+>.
+  'teleportacion': starters['teleportacion'].replace("    qml.RY(np.pi / 3, wires=0)  # estado a teleportar", "    qml.RY(np.pi / 3, wires=2)  # estado a teleportar").replace("    qml.Hadamard(wires=1)\n    qml.CNOT(wires=[1, 2])\n", "").replace("    qml.CNOT(wires=[0, 1])\n    qml.Hadamard(wires=0)\n", ""),
+  # Measuring with only H (no CNOT) gives uncorrelated bits.
+  'medida-parcial': starters['medida-parcial'],
   # |-i> = (|0> - i|1>)/sqrt2 instead of |->
   'puertas-monoqubit-1': starters['puertas-monoqubit-1'].replace("    qml.Hadamard(wires=0)", "    qml.Hadamard(wires=0)\n    qml.S(wires=0)\n    qml.S(wires=0)\n    qml.S(wires=0)"),
   # correct alternative: theta written as 2*arccos(sqrt(.75)) (structural checker)

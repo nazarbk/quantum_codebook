@@ -1,12 +1,22 @@
 import React from 'react';
-import { UserProgress } from '../../types/user';
 import { Language } from '../../types/language';
+import type { AppUser } from '../../auth/AuthProvider';
+import type { SyncStatus } from '../../hooks/useProgress';
 import { Theme } from '../../types/theme';
 
 export type AppTab = 'roadmap' | 'lessons' | 'quiz' | 'miniproject';
 
 interface NavbarProps {
-  progress: UserProgress;
+  /** Active block shown under the logo and used for the tab labels. */
+  block: { order: number; title: Record<Language, string>; lessonCount: number; miniProjectShort: Record<Language, string> };
+  quizPassed: boolean;
+  miniProjectCompleted: boolean;
+  xp: number;
+  level: number;
+  /** Signed-in user (null in local mode). */
+  user: AppUser | null;
+  syncStatus: SyncStatus;
+  onSignOut?: () => void;
   activeTab: AppTab;
   setActiveTab: (tab: AppTab) => void;
   lang: Language;
@@ -15,8 +25,23 @@ interface NavbarProps {
   onToggleTheme: () => void;
 }
 
+const SYNC_COPY: Record<SyncStatus, Record<Language, string>> = {
+  idle: { es: 'Modo local · progreso en este navegador', en: 'Local mode · progress in this browser' },
+  loading: { es: 'Cargando tu progreso…', en: 'Loading your progress…' },
+  saving: { es: 'Guardando…', en: 'Saving…' },
+  saved: { es: 'Progreso guardado en tu cuenta', en: 'Progress saved to your account' },
+  error: { es: 'Sin conexión: se guarda en este navegador y se reintentará', en: 'Offline: kept in this browser, will retry' },
+};
+
 export const Navbar: React.FC<NavbarProps> = ({
-  progress,
+  block,
+  quizPassed,
+  miniProjectCompleted,
+  xp,
+  level,
+  user,
+  syncStatus,
+  onSignOut,
   activeTab,
   setActiveTab,
   lang,
@@ -35,7 +60,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div>
             <h1 className="text-base font-extrabold text-white tracking-tight">Quantum Codebook</h1>
             <p className="text-xs text-cyan-300 font-mono">
-              {lang === 'es' ? 'Bloque 1: Fundamentos del Qubit' : 'Block 1: Qubit Fundamentals'}
+              {lang === 'es' ? `Bloque ${block.order}: ${block.title.es}` : `Block ${block.order}: ${block.title.en}`}
             </p>
           </div>
         </div>
@@ -61,7 +86,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 : 'text-slate-400 hover:text-white hover:bg-slate-900'
             }`}
           >
-            📖 {lang === 'es' ? 'Lecciones (1-6)' : 'Lessons (1-6)'}
+            📖 {lang === 'es' ? `Lecciones (1-${block.lessonCount})` : `Lessons (1-${block.lessonCount})`}
           </button>
           <button
             onClick={() => setActiveTab('quiz')}
@@ -72,7 +97,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             📝 {lang === 'es' ? 'Test de Evaluación' : 'Assessment Quiz'}
-            {progress.quizPassed && (
+            {quizPassed && (
               <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full border-2 border-slate-950" />
             )}
           </button>
@@ -84,8 +109,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 : 'text-slate-400 hover:text-white hover:bg-slate-900'
             }`}
           >
-            🚀 {lang === 'es' ? 'Mini-Proyecto (QRNG)' : 'Mini-Project (QRNG)'}
-            {progress.miniProjectCompleted && (
+            🚀 {lang === 'es' ? `Mini-Proyecto (${block.miniProjectShort.es})` : `Mini-Project (${block.miniProjectShort.en})`}
+            {miniProjectCompleted && (
               <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full border-2 border-slate-950" />
             )}
           </button>
@@ -124,10 +149,32 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="flex items-center space-x-2 bg-slate-950/80 px-3 py-1.5 rounded-2xl border border-slate-800">
             <div className="text-right">
               <span className="block text-[10px] text-slate-400 uppercase tracking-wider font-mono">
-                Lvl {progress.level}
+                Lvl {level}
               </span>
-              <span className="text-xs font-black text-amber-400 font-mono">⚡ {progress.totalXp} XP</span>
+              <span className="text-xs font-black text-amber-400 font-mono">⚡ {xp} XP</span>
             </div>
+          </div>
+
+          {/* Account */}
+          <div className="flex items-center gap-2" title={SYNC_COPY[syncStatus][lang]}>
+            {user ? (
+              <>
+                {user.avatarUrl
+                  ? <img src={user.avatarUrl} alt="" referrerPolicy="no-referrer" className="h-9 w-9 rounded-full border border-slate-700" />
+                  : <span className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-700 bg-slate-950 text-sm font-bold text-cyan-300">{user.name.slice(0, 1).toUpperCase()}</span>}
+                <div className="hidden text-left sm:block">
+                  <span className="block max-w-[140px] truncate text-xs font-semibold text-slate-200">{user.name}</span>
+                  <span className={`block text-[10px] ${syncStatus === 'error' ? 'text-amber-300' : 'text-slate-500'}`}>{SYNC_COPY[syncStatus][lang]}</span>
+                </div>
+                {onSignOut && (
+                  <button type="button" onClick={onSignOut} className="rounded-xl border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-[11px] font-semibold text-slate-400 hover:text-white">
+                    {lang === 'es' ? 'Salir' : 'Sign out'}
+                  </button>
+                )}
+              </>
+            ) : (
+              <span className="rounded-xl border border-dashed border-slate-700 px-2.5 py-1.5 text-[10px] text-slate-400">{SYNC_COPY.idle[lang]}</span>
+            )}
           </div>
         </div>
       </div>

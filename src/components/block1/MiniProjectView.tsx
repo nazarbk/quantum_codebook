@@ -1,40 +1,46 @@
 import React, { useState } from 'react';
-import { MINI_PROJECT_BLOCK_1 } from '../../data/block1Data';
 import { QuantumCodeEditor } from '../editor/QuantumCodeEditor';
 import { Language } from '../../types/language';
 import { MathRenderer } from '../common/MathRenderer';
 import { Theme } from '../../types/theme';
-import { checkBiasedQrng } from '../../utils/exerciseChecks';
+import type { BlockContent } from '../../types/block';
+import type { Samples } from '../../types/worker';
+import { CHECK_FEEDBACK } from '../../data/feedback';
+import { MultiQubitStateView } from '../quantum/MultiQubitStateView';
 
 interface MiniProjectViewProps {
+  block: BlockContent;
   completed: boolean;
-  onCompleteMiniProject: (xp: number) => void;
+  onCompleteMiniProject: () => void;
   lang: Language;
   theme: Theme;
 }
 
 export const MiniProjectView: React.FC<MiniProjectViewProps> = ({
+  block,
   completed,
   onCompleteMiniProject,
   lang,
   theme,
 }) => {
+  const project = block.miniProject;
   const [verified, setVerified] = useState<boolean>(completed);
-
   const [feedback, setFeedback] = useState<string>('');
+  const [code, setCode] = useState<string>(project.starterCode.pennylane[lang]);
+  const [lastState, setLastState] = useState<[number, number][] | null>(null);
+  const es = lang === 'es';
 
-  const handleExecutionSuccess = (_output: string, statevector?: [number, number][]) => {
-    const check = checkBiasedQrng(MINI_PROJECT_BLOCK_1.targetBiasP0, statevector);
+  const handleExecutionSuccess = (_output: string, statevector?: [number, number][], samples?: Samples) => {
+    setLastState(statevector && statevector.length > 2 ? statevector : null);
+    const check = block.validateMiniProject({ statevector, samples, code });
     if (check.passed) {
       setVerified(true);
       setFeedback('');
-      onCompleteMiniProject(MINI_PROJECT_BLOCK_1.xpReward);
+      onCompleteMiniProject();
       return;
     }
     setVerified(completed);
-    setFeedback(check.reason === 'missing-state'
-      ? (lang === 'es' ? 'No se encontró la variable `state`: guarda el estado del circuito en `state` para verificar el reto.' : 'No `state` variable found: store the circuit state in `state` to verify the challenge.')
-      : (lang === 'es' ? `El estado preparado no da P(|0⟩) = ${MINI_PROJECT_BLOCK_1.targetBiasP0}. Revisa el ángulo θ.` : `The prepared state does not give P(|0⟩) = ${MINI_PROJECT_BLOCK_1.targetBiasP0}. Check the angle θ.`));
+    setFeedback(check.reason === 'wrong-result' && project.wrongResultHint ? project.wrongResultHint[lang] : CHECK_FEEDBACK[check.reason][lang]);
   };
 
   return (
@@ -42,35 +48,43 @@ export const MiniProjectView: React.FC<MiniProjectViewProps> = ({
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-2 space-y-3">
           <div className="flex items-center space-x-3">
-            <span className="text-2xl">🎲</span>
+            <span className="text-2xl">{project.icon ?? '🚀'}</span>
             <div>
-              <h2 className="text-lg font-black text-white">{MINI_PROJECT_BLOCK_1.title[lang]}</h2>
+              <h2 className="text-lg font-black text-white">{project.title[lang]}</h2>
               <span className="text-xs text-amber-400 font-mono font-bold">
-                +{MINI_PROJECT_BLOCK_1.xpReward} XP
+                +{project.xpReward} XP
               </span>
             </div>
           </div>
-          <MathRenderer content={MINI_PROJECT_BLOCK_1.description[lang]} className="text-sm" />
+          <MathRenderer content={project.description[lang]} className="text-sm" />
           {feedback && <p role="status" className="text-xs text-amber-300">{feedback}</p>}
         </div>
 
         <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col items-center justify-center text-center space-y-2">
           <span className="text-3xl">{verified ? '🏆' : '🎯'}</span>
           <span className={`text-xs font-bold font-mono ${verified ? 'text-emerald-400' : 'text-amber-400'}`}>
-            {verified ? (lang === 'es' ? '¡RETO SUPERADO!' : 'CHALLENGE PASSED!') : (lang === 'es' ? 'PENDIENTE' : 'PENDING')}
+            {verified ? (es ? '¡RETO SUPERADO!' : 'CHALLENGE PASSED!') : (es ? 'PENDIENTE' : 'PENDING')}
           </span>
         </div>
       </div>
 
-      <div className="h-[500px]">
+      <div className="h-[560px]">
         <QuantumCodeEditor
-          starterCodeMap={MINI_PROJECT_BLOCK_1.starterCode}
+          starterCodeMap={project.starterCode}
           initialSdk="pennylane"
           theme={theme}
           lang={lang}
           onCodeSuccess={handleExecutionSuccess}
+          onCodeChange={setCode}
         />
       </div>
+
+      {lastState && (
+        <section className="space-y-3">
+          <h3 className="text-sm font-bold text-slate-100">{es ? 'Estado tras la última ejecución' : 'State after the last run'}</h3>
+          <MultiQubitStateView state={lastState} lang={lang} theme={theme} />
+        </section>
+      )}
     </div>
   );
 };

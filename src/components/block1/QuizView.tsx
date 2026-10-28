@@ -1,27 +1,37 @@
 import React, { useState } from 'react';
-import { QUIZ_BLOCK_1 } from '../../data/block1Data';
+import type { QuizQuestion } from '../../types/block';
 import { Language } from '../../types/language';
 import { shuffledIndices } from '../../utils/shuffle';
 
 /** A fresh option order per question, so the right answer is not always in the same position. */
-const makeOptionOrders = () => Object.fromEntries(QUIZ_BLOCK_1.map((q) => [q.id, shuffledIndices(q.options.es.length)])) as Record<number, number[]>;
+const makeOptionOrders = (quiz: QuizQuestion[]) => Object.fromEntries(quiz.map((q) => [q.id, shuffledIndices(q.options.es.length)])) as Record<number, number[]>;
 
 interface QuizViewProps {
+  quiz: QuizQuestion[];
+  /** XP granted the first time the quiz is passed. */
+  quizXp: number;
+  blockOrder: number;
   quizPassed: boolean;
   quizScore: number;
-  onSaveQuizResult: (score: number, maxScore: number, xp: number) => void;
+  onSaveQuizResult: (score: number, maxScore: number) => void;
   lang: Language;
 }
 
 export const QuizView: React.FC<QuizViewProps> = ({
+  quiz,
+  quizXp,
+  blockOrder,
   quizPassed,
   quizScore,
   onSaveQuizResult,
   lang,
 }) => {
+  const QUIZ = quiz;
   const [userAnswers, setUserAnswers] = useState<Record<number, number>>({});
-  const [optionOrders, setOptionOrders] = useState<Record<number, number[]>>(makeOptionOrders);
+  const [optionOrders, setOptionOrders] = useState<Record<number, number[]>>(() => makeOptionOrders(quiz));
   const [submitted, setSubmitted] = useState<boolean>(false);
+  /** Whether the quiz had already been passed before this attempt (XP is only granted once). */
+  const [passedBefore, setPassedBefore] = useState<boolean>(quizPassed);
 
   const handleSelectOption = (questionId: number, optionIdx: number) => {
     if (submitted) return;
@@ -30,7 +40,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
 
   const calculateScore = () => {
     let score = 0;
-    QUIZ_BLOCK_1.forEach((q) => {
+    QUIZ.forEach((q) => {
       if (userAnswers[q.id] === q.correctAnswer) score += 1;
     });
     return score;
@@ -38,18 +48,19 @@ export const QuizView: React.FC<QuizViewProps> = ({
 
   const handleSubmit = () => {
     const score = calculateScore();
+    setPassedBefore(quizPassed);
     setSubmitted(true);
-    onSaveQuizResult(score, QUIZ_BLOCK_1.length, 200);
+    onSaveQuizResult(score, QUIZ.length);
   };
 
   const resetQuiz = () => {
     setUserAnswers({});
     setSubmitted(false);
-    setOptionOrders(makeOptionOrders());
+    setOptionOrders(makeOptionOrders(quiz));
   };
 
   const score = submitted ? calculateScore() : 0;
-  const passingScore = Math.ceil(QUIZ_BLOCK_1.length * 0.7);
+  const passingScore = Math.ceil(QUIZ.length * 0.7);
   const passed = score >= passingScore;
 
   return (
@@ -57,23 +68,23 @@ export const QuizView: React.FC<QuizViewProps> = ({
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex items-center justify-between">
         <div>
           <h2 className="text-xl font-black text-white">
-            {lang === 'es' ? 'Examen de Evaluación: Bloque 1' : 'Assessment Test: Block 1'}
+            {lang === 'es' ? `Examen de Evaluación: Bloque ${blockOrder}` : `Assessment Test: Block ${blockOrder}`}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
             {lang === 'es' ? 'Demuestra tu dominio conceptual de los fundamentos del qubit.' : 'Demonstrate your conceptual mastery of qubit fundamentals.'}
           </p>
           {quizPassed && <p className="mt-2 text-xs font-semibold text-emerald-400">
-            {lang === 'es' ? `Aprobado anteriormente · mejor resultado ${quizScore}/${QUIZ_BLOCK_1.length}` : `Previously passed · best score ${quizScore}/${QUIZ_BLOCK_1.length}`}
+            {lang === 'es' ? `Aprobado anteriormente · mejor resultado ${quizScore}/${QUIZ.length}` : `Previously passed · best score ${quizScore}/${QUIZ.length}`}
           </p>}
         </div>
         <div className="text-right">
           <span className="text-xs font-mono text-slate-400 uppercase">{lang === 'es' ? 'Mínimo' : 'Minimum'}</span>
-            <span className="block text-lg font-black text-emerald-400 font-mono">70% · {passingScore}/{QUIZ_BLOCK_1.length}</span>
+            <span className="block text-lg font-black text-emerald-400 font-mono">70% · {passingScore}/{QUIZ.length}</span>
         </div>
       </div>
 
       <div className="space-y-6">
-        {QUIZ_BLOCK_1.map((q, idx) => {
+        {QUIZ.map((q, idx) => {
           const selectedOption = userAnswers[q.id];
           const isCorrect = selectedOption === q.correctAnswer;
 
@@ -139,7 +150,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
             <div>
               <span className="text-xs text-slate-400 font-mono">{lang === 'es' ? 'Resultado:' : 'Score:'}</span>
               <span className={`block text-xl font-black ${passed ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {score} / {QUIZ_BLOCK_1.length} - {passed ? (lang === 'es' ? '¡Aprobado! (+200 XP si es tu mejor intento)' : 'Passed! (+200 XP on first pass)') : (lang === 'es' ? 'No aprobado: revisa las explicaciones y reintenta' : 'Not passed: review the explanations and retry')}
+                {score} / {QUIZ.length} - {passed ? (lang === 'es' ? (passedBefore ? '¡Aprobado!' : `¡Aprobado! (+${quizXp} XP)`) : (passedBefore ? 'Passed!' : `Passed! (+${quizXp} XP)`)) : (lang === 'es' ? 'No aprobado: revisa las explicaciones y reintenta' : 'Not passed: review the explanations and retry')}
               </span>
             </div>
             <button
@@ -152,11 +163,11 @@ export const QuizView: React.FC<QuizViewProps> = ({
         ) : (
           <div className="flex items-center justify-between w-full">
             <span className="text-xs text-slate-400">
-              {Object.keys(userAnswers).length} / {QUIZ_BLOCK_1.length}
+              {Object.keys(userAnswers).length} / {QUIZ.length}
             </span>
             <button
               onClick={handleSubmit}
-              disabled={Object.keys(userAnswers).length < QUIZ_BLOCK_1.length}
+              disabled={Object.keys(userAnswers).length < QUIZ.length}
               className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl text-xs font-extrabold shadow-lg shadow-indigo-600/30 disabled:opacity-50"
             >
               🚀 {lang === 'es' ? 'Enviar respuestas' : 'Submit quiz'}

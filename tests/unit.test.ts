@@ -261,3 +261,155 @@ describe('Motor multi-qubit (preparación del Bloque 2)', () => {
     assert.deepEqual(layoutColumns([H0, X1, CN, { id: 'M', label: 'M', wire: 0 }, { id: 'M', label: 'M', wire: 1 }]), [0, 0, 1, 2, 2]);
   });
 });
+
+/* ======================================================================= Bloque 2 */
+import { COURSE_CONTENT, isBlockUnlocked, blockDefinition, xpAndLevel } from '../src/data/courseContent';
+import { checkFreeTeleportation } from '../src/data/blocks/block2';
+import { emptyProgress, migrateV2, mergeProgress, normalizeProgress, isBlockComplete, computeXp, levelForXp, blockMilestones } from '../src/utils/progress';
+
+const BLOCK2 = COURSE_CONTENT['block-2'];
+const inputOf = (run: any, code = '') => ({ statevector: run.statevector ?? undefined, samples: run.samples ?? undefined, code });
+
+describe('Bloque 2: ejercicios con el simulador', () => {
+  for (const lesson of BLOCK2.lessons) {
+    const r = runs[lesson.slug];
+    test(`${lesson.slug}: el código inicial se ejecuta y NO aprueba`, () => {
+      assert.equal(r.starter.error, null, r.starter.error);
+      assert.equal(BLOCK2.validateExercise(lesson.slug, inputOf(r.starter)).passed, false);
+    });
+    test(`${lesson.slug}: la solución de referencia SÍ aprueba`, () => {
+      assert.equal(r.solution.error, null, r.solution.error);
+      assert.equal(BLOCK2.validateExercise(lesson.slug, inputOf(r.solution, r.solution_code)).passed, true, r.solution.stdout);
+    });
+    test(`${lesson.slug}: imprimir el resultado esperado NO aprueba`, () =>
+      assert.equal(BLOCK2.validateExercise(lesson.slug, inputOf(r.cheat)).passed, false));
+    test(`${lesson.slug}: la solución coincide con el circuito objetivo`, () => {
+      const target = BLOCK2.targets[lesson.slug].circuit ?? [];
+      const p = compareCircuit(readPennyLaneCircuit(r.solution_code), target);
+      assert.ok(p.isComplete, JSON.stringify(p));
+    });
+    test(`${lesson.slug}: la solución coincide con el estado objetivo mostrado`, () => {
+      if (!r.solution.statevector) return; // measurement exercise
+      assert.ok(matchesState(BLOCK2.targets[lesson.slug].state!, r.solution.statevector));
+    });
+  }
+  test('teleportación: preparar el estado directamente en q2 (sin protocolo) NO aprueba', () =>
+    assert.equal(BLOCK2.validateExercise('teleportacion', inputOf(runs['teleportacion'].variant)).passed, false));
+  test('medida parcial: bits sin correlación NO aprueban', () =>
+    assert.equal(BLOCK2.validateExercise('medida-parcial', inputOf(runs['medida-parcial'].variant)).passed, false));
+  test('superdensa: cada mensaje llega intacto (identidades del protocolo)', () => {
+    // Checked against the simulator in run_exercises: X for the 2nd bit, Z for the 1st.
+    assert.match(runs['codificacion-superdensa'].solution.stdout, /Bob recibe: 11 \(probabilidad 1\.000\)/);
+  });
+});
+
+describe('Bloque 2: mini-proyecto de teleportación libre', () => {
+  const mp = runs['__miniproject_block-2__'];
+  test('el código inicial se ejecuta y NO aprueba', () => {
+    assert.equal(mp.starter.error, null, mp.starter.error);
+    assert.equal(BLOCK2.validateMiniProject(inputOf(mp.starter, runs['__miniproject_block-2__'].solution_code.replace('theta = 2.1', 'theta = 0'))).passed, false);
+  });
+  test('la solución (θ = 2.1, φ = π/4) SÍ aprueba', () =>
+    assert.ok(BLOCK2.validateMiniProject(inputOf(mp.solution, mp.solution_code)).passed, mp.solution.stdout));
+  test('los ángulos se leen del código: si no coinciden con el estado, NO aprueba', () =>
+    assert.equal(checkFreeTeleportation(inputOf(mp.solution, 'theta = 1.0\nphi = np.pi / 4')).passed, false));
+  test('estados triviales (θ = 0 o φ = 0) NO aprueban', () => {
+    assert.equal(checkFreeTeleportation(inputOf(mp.solution, 'theta = 0\nphi = 0')).passed, false);
+    assert.equal(checkFreeTeleportation(inputOf(mp.solution, 'theta = 2.1\nphi = 0')).passed, false);
+  });
+  test('imprimir el vector esperado NO aprueba', () => assert.equal(BLOCK2.validateMiniProject(inputOf(mp.cheat, 'theta = 2.1\nphi = 0.8')).passed, false));
+});
+
+describe('Contenido de todos los bloques', () => {
+  const spanish = /\b(EJERCICIO|RETO|BLOQUE|Estado|Vector de|Conteo|Conteos|Muestras|Probabilidad|corrige|aplica|añade|invierte|elige|prepara|configura|verificado|creado|completada|Coinciden|recibe|Solapamiento|objetivo|esperado|crea|correcciones|operaciones|entrelaza|calcula|transforma|Par entrelazado|estado a)\b/;
+  for (const block of Object.values(COURSE_CONTENT)) {
+    const codes = [...block.lessons.map((l) => [l.slug, l.exercise.starterCode.pennylane] as const), [`${block.id}/mini`, block.miniProject.starterCode.pennylane] as const];
+    for (const [slug, code] of codes) {
+      test(`${block.id} · ${slug}: ES y EN tienen las mismas líneas de código`, () => {
+        const es = code.es.split('\n'), en = code.en.split('\n');
+        assert.equal(es.length, en.length);
+        es.forEach((line, i) => { if (line !== en[i]) assert.match(line.trim(), /^(#|print\(|_result\s*=|qml\.\w+\(.*\)\s*#)/, `línea ${i + 1}: ${line}`); });
+      });
+      test(`${block.id} · ${slug}: la versión EN no tiene restos en castellano`, () => assert.doesNotMatch(code.en, spanish));
+    }
+    test(`${block.id}: cada lección tiene teoría ES/EN equivalente, pistas de 3 niveles y objetivos`, () => {
+      for (const l of block.lessons) {
+        const n = (s: string) => (s.match(/^###\s/gm) || []).length;
+        assert.equal(n(l.contentMarkdown.es), n(l.contentMarkdown.en), l.slug);
+        assert.ok(n(l.contentMarkdown.es) >= 4, `${l.slug}: pocas secciones`);
+        for (const lvl of [1, 2, 3] as const) assert.ok(block.hints[l.slug]?.[lvl]?.es && block.hints[l.slug]?.[lvl]?.en, `${l.slug} pista ${lvl}`);
+        assert.ok(block.targets[l.slug], `${l.slug} objetivos`);
+      }
+    });
+    test(`${block.id}: test de 10 preguntas coherente`, () => {
+      assert.equal(block.quiz.length, 10);
+      assert.equal(new Set(block.quiz.map((q) => q.id)).size, 10);
+      for (const q of block.quiz) {
+        assert.equal(q.options.es.length, q.options.en.length, `q${q.id}`);
+        assert.ok(q.correctAnswer >= 0 && q.correctAnswer < q.options.es.length, `q${q.id}`);
+      }
+    });
+    test(`${block.id}: slugs únicos y enlaces https`, () => {
+      assert.equal(new Set(block.lessons.map((l) => l.slug)).size, block.lessons.length);
+      for (const l of block.lessons) for (const b of l.bibliography) if (b.link) assert.match(b.link, /^https:\/\//, b.link);
+    });
+  }
+  test('los slugs no se repiten entre bloques (las notas usan bloque/slug, los tests solo slug)', () => {
+    const all = Object.values(COURSE_CONTENT).flatMap((b) => b.lessons.map((l) => l.slug));
+    assert.equal(new Set(all).size, all.length);
+  });
+});
+
+describe('Progreso por usuario (v3)', () => {
+  const v2 = { completedLessons: ['bit-vs-qubit', 'vector-estado-born'], solvedExercises: ['bit-vs-qubit', 'vector-estado-born', 'esfera-de-bloch'], quizPassed: true, quizScore: 8, miniProjectCompleted: false, totalXp: 310, level: 3 };
+  test('migra el formato v2 al bloque 1 sin perder nada', () => {
+    const p = normalizeProgress(v2);
+    assert.equal(p.version, 3);
+    assert.deepEqual(p.blocks['block-1'].completedLessons, v2.completedLessons);
+    assert.equal(p.blocks['block-1'].quizScore, 8);
+  });
+  test('descarta el test "aprobado" de versiones antiguas con 1 o 2 aciertos', () => {
+    const p = migrateV2({ ...v2, quizScore: 1 });
+    assert.equal(p.blocks['block-1'].quizPassed, false);
+    assert.deepEqual(p.blocks['block-1'].solvedExercises, ['bit-vs-qubit', 'vector-estado-born']);
+  });
+  test('datos corruptos dan un progreso vacío válido', () => {
+    assert.deepEqual(normalizeProgress('basura').blocks, {});
+    assert.deepEqual(normalizeProgress({ version: 3, blocks: { 'block-1': { completedLessons: 'x', quizScore: -5 } } }).blocks['block-1'].completedLessons, []);
+  });
+  test('fusionar dos dispositivos no pierde nada y la nota más reciente gana', () => {
+    const a = { ...emptyProgress(), updatedAt: '2026-01-01T00:00:00Z', blocks: { 'block-1': { completedLessons: ['bit-vs-qubit'], solvedExercises: [], quizPassed: true, quizScore: 7, miniProjectCompleted: false } }, notes: { 'block-1/bit-vs-qubit': 'vieja', 'block-1/cnot': 'solo en A' } };
+    const b = { ...emptyProgress(), updatedAt: '2026-02-01T00:00:00Z', blocks: { 'block-1': { completedLessons: ['esfera-de-bloch'], solvedExercises: [], quizPassed: false, quizScore: 9, miniProjectCompleted: true } }, notes: { 'block-1/bit-vs-qubit': 'nueva' } };
+    const m = mergeProgress(a, b);
+    assert.deepEqual(m.blocks['block-1'].completedLessons.sort(), ['bit-vs-qubit', 'esfera-de-bloch']);
+    assert.ok(m.blocks['block-1'].quizPassed && m.blocks['block-1'].miniProjectCompleted);
+    assert.equal(m.blocks['block-1'].quizScore, 9);
+    assert.equal(m.notes['block-1/bit-vs-qubit'], 'nueva');
+    assert.equal(m.notes['block-1/cnot'], 'solo en A');
+    assert.deepEqual(mergeProgress(a, b), mergeProgress(b, a));
+  });
+  test('la XP se calcula a partir de lo completado (fusionar no la duplica)', () => {
+    const p = normalizeProgress(v2);
+    const xp = computeXp(p, Object.values(COURSE_CONTENT));
+    assert.equal(xp, 50 + 60 + 200); // two lessons + quiz
+    assert.equal(computeXp(mergeProgress(p, p), Object.values(COURSE_CONTENT)), xp);
+    assert.equal(levelForXp(xp), 3);
+    assert.deepEqual(xpAndLevel(p), { xp, level: 3 });
+  });
+  test('el Bloque 2 se desbloquea con el 80 % de las lecciones del Bloque 1, o con test + mini-proyecto', () => {
+    const b2 = blockDefinition('block-2');
+    const base = emptyProgress();
+    assert.equal(isBlockUnlocked(blockDefinition('block-1'), base), true);
+    assert.equal(isBlockUnlocked(b2, base), false);
+    const fiveLessons = { ...base, blocks: { 'block-1': { completedLessons: COURSE_CONTENT['block-1'].lessons.slice(0, 5).map((l) => l.slug), solvedExercises: [], quizPassed: false, quizScore: 0, miniProjectCompleted: false } } };
+    assert.equal(isBlockUnlocked(b2, fiveLessons), true);
+    const quizAndMini = { ...base, blocks: { 'block-1': { completedLessons: [], solvedExercises: [], quizPassed: true, quizScore: 8, miniProjectCompleted: true } } };
+    assert.equal(isBlockUnlocked(b2, quizAndMini), true);
+    assert.equal(isBlockUnlocked(blockDefinition('block-3'), quizAndMini), false);
+  });
+  test('hitos del bloque', () => {
+    const block = { completedLessons: ['a', 'b'], solvedExercises: [], quizPassed: true, quizScore: 7, miniProjectCompleted: false };
+    assert.deepEqual(blockMilestones(block, ['a', 'b', 'c']), { lessonsDone: 2, done: 3, total: 5, percent: 60 });
+    assert.equal(isBlockComplete(block, 3), false);
+  });
+});

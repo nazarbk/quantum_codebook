@@ -122,7 +122,7 @@ def _marginal(psi, wires, n):
     return p.reshape(-1)
 
 
-def qnode(dev):
+def qnode(dev, shots=None):
     def deco(fn):
         def run(*args, **kwargs):
             global _tape
@@ -143,15 +143,16 @@ def qnode(dev):
             if m.kind == "expval":
                 p = _marginal(psi, m.obs.wires, n)
                 return float(p[0] - p[1])
-            if dev.shots is None:
+            n_shots = shots if shots is not None else dev.shots
+            if n_shots is None:
                 raise ValueError("sample requires shots")
             rng = np.random.default_rng(1)
             if m.obs is not None:  # single-qubit PauliZ eigenvalues ±1
                 p = _marginal(psi, m.obs.wires, n)
-                return np.where(rng.random(dev.shots) < p[0], 1.0, -1.0)
+                return np.where(rng.random(n_shots) < p[0], 1.0, -1.0)
             wires = m.wires or list(range(n))
             p = _marginal(psi, wires, n)
-            outcomes = rng.choice(len(p), size=dev.shots, p=p / p.sum())
+            outcomes = rng.choice(len(p), size=n_shots, p=p / p.sum())
             bits = ((outcomes[:, None] >> np.arange(len(wires) - 1, -1, -1)) & 1).astype(int)
             return bits if len(wires) > 1 else bits[:, 0]
         return run

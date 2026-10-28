@@ -735,9 +735,9 @@ Hardware usually measures only in $Z$. To measure in another basis, rotate the s
           es: `# --- EJERCICIO 6: Medición por Disparos en PennyLane ---
 import pennylane as qml
 
-dev = qml.device("default.qubit", wires=1, shots=1000)
+dev = qml.device("default.qubit", wires=1)
 
-@qml.qnode(dev)
+@qml.qnode(dev, shots=1000)
 def circuit():
     # TODO: prepara una superposición equiprobable antes de medir.
     return qml.sample(qml.PauliZ(0))
@@ -755,9 +755,9 @@ _result = "Medición por disparos completada"
           en: `# --- EXERCISE 6: Shot-Based Measurement in PennyLane ---
 import pennylane as qml
 
-dev = qml.device("default.qubit", wires=1, shots=1000)
+dev = qml.device("default.qubit", wires=1)
 
-@qml.qnode(dev)
+@qml.qnode(dev, shots=1000)
 def circuit():
     # TODO: prepare an equal superposition before measuring.
     return qml.sample(qml.PauliZ(0))
@@ -907,6 +907,12 @@ Choose an $R_y(\theta)$ rotation and derive the angle. Recall $P(0)=\cos^2(\thet
   },
   xpReward: 250,
   targetBiasP0: 0.75,
+  icon: '🎲',
+  shortTitle: { es: 'QRNG', en: 'QRNG' },
+  wrongResultHint: {
+    es: 'El estado preparado no da P(|0⟩) = 0.75. Revisa el ángulo θ.',
+    en: 'The prepared state does not give P(|0⟩) = 0.75. Check the angle θ.',
+  },
   starterCode: {
     pennylane: {
       es: `# --- RETO: QRNG Sesgado en PennyLane ---

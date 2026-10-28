@@ -1,6 +1,6 @@
 import { CourseBlockDefinition } from '../types/course';
 
-/** Course roadmap. Only Block 1 has lesson content at this stage. */
+/** Course roadmap. Blocks 1 and 2 have lesson content; the rest are planned. */
 export const COURSE_BLOCKS: CourseBlockDefinition[] = [
   {
     id: 'block-1', order: 1, lessonCount: 6, contentStatus: 'available',
@@ -10,11 +10,11 @@ export const COURSE_BLOCKS: CourseBlockDefinition[] = [
     topics: { es: ['Superposición', 'Esfera de Bloch', 'Puertas de un qubit', 'Medida'], en: ['Superposition', 'Bloch sphere', 'Single-qubit gates', 'Measurement'] },
   },
   {
-    id: 'block-2', order: 2, lessonCount: null, contentStatus: 'planned', prerequisiteBlockId: 'block-1',
+    id: 'block-2', order: 2, lessonCount: 7, contentStatus: 'available', prerequisiteBlockId: 'block-1',
     level: { es: 'Nivel 1 · Básico', en: 'Level 1 · Foundational' },
     title: { es: 'Entrelazamiento y Sistemas de Dos Qubits', en: 'Entanglement and Two-Qubit Systems' },
     subtitle: { es: 'Producto tensorial, estados de Bell, CNOT y teleportación', en: 'Tensor products, Bell states, CNOT, and teleportation' },
-    topics: { es: ['Producto tensorial', 'Estados de Bell', 'CNOT', 'Desigualdades de Bell', 'Teleportación'], en: ['Tensor products', 'Bell states', 'CNOT', 'Bell inequalities', 'Teleportation'] },
+    topics: { es: ['Producto tensorial', 'CNOT', 'Estados de Bell', 'Medida parcial', 'No clonación', 'Codificación superdensa', 'Teleportación'], en: ['Tensor products', 'CNOT', 'Bell states', 'Partial measurement', 'No-cloning', 'Superdense coding', 'Teleportation'] },
   },
   {
     id: 'block-3', order: 3, lessonCount: null, contentStatus: 'planned', prerequisiteBlockId: 'block-2',
@@ -39,4 +39,3 @@ export const COURSE_BLOCKS: CourseBlockDefinition[] = [
   },
 ];
 
-export const BLOCK_2 = COURSE_BLOCKS[1];

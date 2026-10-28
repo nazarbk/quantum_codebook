@@ -1,74 +1,73 @@
 import React, { useEffect, useState } from 'react';
-import { LESSONS_BLOCK_1 } from '../../data/block1Data';
 import { QuantumCodeEditor } from '../editor/QuantumCodeEditor';
 import { BlochSphere } from '../quantum/BlochSphere';
 import { HintPanel } from '../editor/HintPanel';
+import { LessonNotes } from './LessonNotes';
 import { MathRenderer } from '../common/MathRenderer';
 import { BlochCoordinates, stateToBlochCoordinates } from '../../utils/quantumMath';
 import type { Samples } from '../../types/worker';
-import { CheckFailure, TARGET_BLOCH, TARGET_CIRCUITS, checkExercise } from '../../utils/exerciseChecks';
+import type { BlockContent } from '../../types/block';
+import type { BlockProgress } from '../../utils/progress';
+import { CHECK_FEEDBACK } from '../../data/feedback';
 import { Language } from '../../types/language';
 import { Theme } from '../../types/theme';
 import { CircuitWorkspace } from '../quantum/CircuitWorkspace';
 import { MultiQubitStateView } from '../quantum/MultiQubitStateView';
 import { compareCircuit, readPennyLaneCircuit } from '../../utils/pennylaneCircuit';
 
-const FEEDBACK: Record<CheckFailure, Record<Language, string>> = {
-  'wrong-result': {
-    es: 'La ejecución terminó, pero el estado obtenido aún no es el objetivo. Revisa las puertas y vuelve a intentarlo.',
-    en: 'The program ran, but the resulting state is not the target yet. Check your gates and try again.',
-  },
-  'missing-state': {
-    es: 'No se encontró la variable `state`. Guarda el resultado del circuito en `state = circuit()` para poder comprobarlo.',
-    en: 'No `state` variable was found. Store the circuit result as `state = circuit()` so it can be checked.',
-  },
-  'invalid-state': {
-    es: '`state` debe ser el vector normalizado de un qubit (2 amplitudes con |α|² + |β|² = 1).',
-    en: '`state` must be a normalized single-qubit vector (2 amplitudes with |α|² + |β|² = 1).',
-  },
-  'missing-samples': {
-    es: 'No se encontró la variable `samples`. Guarda las medidas en `samples = circuit()` para poder comprobarlas.',
-    en: 'No `samples` variable was found. Store the measurements as `samples = circuit()` so they can be checked.',
-  },
-};
-
 interface LessonViewProps {
-  completedLessons: string[];
-  solvedExercises: string[];
+  block: BlockContent;
+  progress: BlockProgress;
   onMarkExerciseSolved: (slug: string) => void;
-  onCompleteLesson: (slug: string, xp: number) => void;
+  onCompleteLesson: (slug: string) => void;
+  /** Personal note for a lesson and its setter (saved with the learner's progress). */
+  getNote: (slug: string) => string;
+  onNoteChange: (slug: string, text: string) => void;
   lang: Language;
   theme: Theme;
 }
 
+/** |0…0⟩ for n qubits, shown before the first run of a multi-qubit exercise. */
+const groundState = (qubits: number): [number, number][] => Array.from({ length: 2 ** qubits }, (_, index) => [index === 0 ? 1 : 0, 0]);
+
 export const LessonView: React.FC<LessonViewProps> = ({
-  completedLessons,
-  solvedExercises,
+  block,
+  progress,
   onMarkExerciseSolved,
   onCompleteLesson,
+  getNote,
+  onNoteChange,
   lang,
   theme,
 }) => {
-  const [selectedLessonIndex, setSelectedLessonIndex] = useState<number>(0);
+  const lessons = block.lessons;
+  const [selectedLessonIndex, setSelectedLessonIndex] = useState<number>(() => {
+    // Open the first lesson that is not completed yet.
+    const next = lessons.findIndex((lesson) => !progress.completedLessons.includes(lesson.slug));
+    return next >= 0 ? next : 0;
+  });
   const [openTheorySections, setOpenTheorySections] = useState<number[]>([0]);
-  const currentLesson = LESSONS_BLOCK_1[selectedLessonIndex];
-  
+  const currentLesson = lessons[selectedLessonIndex];
+  const qubits = currentLesson.qubits ?? 1;
+  const isMultiQubit = qubits > 1;
+
   const [blochCoords, setBlochCoords] = useState<BlochCoordinates>({ x: 0, y: 0, z: 1 });
   const [lastOutput, setLastOutput] = useState<string>('');
   /** Last state with more than one qubit (shown with the multi-qubit view instead of one sphere). */
-  const [multiQubitState, setMultiQubitState] = useState<[number, number][] | null>(null);
+  const [multiQubitState, setMultiQubitState] = useState<[number, number][] | null>(isMultiQubit ? groundState(qubits) : null);
   const [exerciseFeedback, setExerciseFeedback] = useState<string>('');
   const [visualization, setVisualization] = useState<'bloch' | 'circuit' | 'both'>('bloch');
   const [showBlochTarget, setShowBlochTarget] = useState(false);
   const [showCircuitTarget, setShowCircuitTarget] = useState(false);
   const [editorCode, setEditorCode] = useState<string>(currentLesson.exercise.starterCode.pennylane[lang]);
-  const targetBloch = TARGET_BLOCH[currentLesson.slug] ?? { x: 0, y: 0, z: 1 };
-  const targetCircuit = TARGET_CIRCUITS[currentLesson.slug] ?? [];
+  const targets = block.targets[currentLesson.slug] ?? {};
+  const targetBloch = targets.bloch ?? { x: 0, y: 0, z: 1 };
+  const targetCircuit = targets.circuit ?? [];
   const currentCircuit = readPennyLaneCircuit(editorCode);
   const circuitProgress = compareCircuit(currentCircuit, targetCircuit);
 
-  const isLessonCompleted = completedLessons.includes(currentLesson.slug);
-  const isExerciseSolved = solvedExercises.includes(currentLesson.slug);
+  const isLessonCompleted = progress.completedLessons.includes(currentLesson.slug);
+  const isExerciseSolved = progress.solvedExercises.includes(currentLesson.slug);
   const theorySections = currentLesson.contentMarkdown[lang]
     .split(/(?=^###\s)/m)
     .map((section) => {
@@ -81,7 +80,7 @@ export const LessonView: React.FC<LessonViewProps> = ({
     setExerciseFeedback('');
     setLastOutput('');
     setBlochCoords({ x: 0, y: 0, z: 1 });
-    setMultiQubitState(null);
+    setMultiQubitState(isMultiQubit ? groundState(qubits) : null);
     setOpenTheorySections([0]);
     setVisualization('bloch');
     setShowBlochTarget(false);
@@ -97,9 +96,9 @@ export const LessonView: React.FC<LessonViewProps> = ({
     } else if (statevector && statevector.length > 2) {
       setMultiQubitState(statevector);
     }
-    const check = checkExercise(currentLesson.slug, statevector, samples);
+    const check = block.validateExercise(currentLesson.slug, { statevector, samples, code: editorCode });
     if (!check.passed) {
-      setExerciseFeedback(FEEDBACK[check.reason][lang]);
+      setExerciseFeedback(CHECK_FEEDBACK[check.reason][lang]);
       return;
     }
     setExerciseFeedback('');
@@ -108,7 +107,7 @@ export const LessonView: React.FC<LessonViewProps> = ({
   };
 
   const handleNextLesson = () => {
-    if (selectedLessonIndex < LESSONS_BLOCK_1.length - 1) {
+    if (selectedLessonIndex < lessons.length - 1) {
       setSelectedLessonIndex((prev) => prev + 1);
     }
   };
@@ -117,8 +116,8 @@ export const LessonView: React.FC<LessonViewProps> = ({
     <div className="max-w-7xl mx-auto p-4 md:p-6 space-y-5">
       {/* Lesson Selector Bar */}
       <div className="flex items-center space-x-2 overflow-x-auto pb-2 scrollbar-none">
-        {LESSONS_BLOCK_1.map((lesson, idx) => {
-          const done = completedLessons.includes(lesson.slug);
+        {lessons.map((lesson, idx) => {
+          const done = progress.completedLessons.includes(lesson.slug);
           const active = idx === selectedLessonIndex;
           return (
             <button
@@ -146,7 +145,7 @@ export const LessonView: React.FC<LessonViewProps> = ({
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-xs font-mono text-indigo-400 uppercase tracking-widest font-semibold">
-                {lang === 'es' ? `Lección ${selectedLessonIndex + 1} de ${LESSONS_BLOCK_1.length}` : `Lesson ${selectedLessonIndex + 1} of ${LESSONS_BLOCK_1.length}`}
+                {lang === 'es' ? `Lección ${selectedLessonIndex + 1} de ${lessons.length}` : `Lesson ${selectedLessonIndex + 1} of ${lessons.length}`}
               </span>
               <span className="text-xs font-mono text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20">
                 +{currentLesson.xpReward} XP
@@ -218,7 +217,7 @@ export const LessonView: React.FC<LessonViewProps> = ({
           {/* Action Footer: Gated Completion + Next Lesson Button */}
           <div className="pt-4 border-t border-slate-800 space-y-3">
             <button
-              onClick={() => onCompleteLesson(currentLesson.slug, currentLesson.xpReward)}
+              onClick={() => onCompleteLesson(currentLesson.slug)}
               disabled={isLessonCompleted || !isExerciseSolved}
               className={`w-full py-3 rounded-xl text-xs font-extrabold transition-all shadow-lg ${
                 isLessonCompleted
@@ -236,7 +235,7 @@ export const LessonView: React.FC<LessonViewProps> = ({
             </button>
 
             {/* NEXT LESSON BUTTON (Visible when lesson is completed) */}
-            {isLessonCompleted && selectedLessonIndex < LESSONS_BLOCK_1.length - 1 && (
+            {isLessonCompleted && selectedLessonIndex < lessons.length - 1 && (
               <button
                 onClick={handleNextLesson}
                 className="w-full py-3 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center space-x-2 active:scale-95"
@@ -293,7 +292,7 @@ export const LessonView: React.FC<LessonViewProps> = ({
                 <div className="flex gap-1 rounded-xl border border-slate-800 bg-slate-900 p-1" role="group" aria-label={lang === 'es' ? 'Tipo de visualización' : 'Visualization type'}>
                   {(['bloch', 'circuit', 'both'] as const).map((view) => (
                     <button key={view} type="button" aria-pressed={visualization === view} onClick={() => setVisualization(view)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${visualization === view ? 'bg-cyan-700 text-white' : 'text-slate-400 hover:text-white'}`}>
-                      {view === 'bloch' ? (lang === 'es' ? 'Esfera' : 'Sphere') : view === 'circuit' ? (lang === 'es' ? 'Circuito' : 'Circuit') : (lang === 'es' ? 'Ambos' : 'Both')}
+                      {view === 'bloch' ? (isMultiQubit ? (lang === 'es' ? 'Estado' : 'State') : (lang === 'es' ? 'Esfera' : 'Sphere')) : view === 'circuit' ? (lang === 'es' ? 'Circuito' : 'Circuit') : (lang === 'es' ? 'Ambos' : 'Both')}
                     </button>
                   ))}
                 </div>
@@ -310,7 +309,7 @@ export const LessonView: React.FC<LessonViewProps> = ({
             {(visualization === 'bloch' || visualization === 'both') && (
               <div className={visualization === 'both' ? 'grid grid-cols-1 xl:grid-cols-2 gap-3' : ''}>
                 {multiQubitState ? (
-                  <MultiQubitStateView state={multiQubitState} lang={lang} theme={theme} />
+                  <MultiQubitStateView state={multiQubitState} target={showBlochTarget ? targets.state : undefined} lang={lang} theme={theme} />
                 ) : (
                 <div>
                   <BlochSphere coordinates={blochCoords} targetCoordinates={showBlochTarget ? targetBloch : undefined} size={280} theme={theme} />
@@ -340,7 +339,13 @@ export const LessonView: React.FC<LessonViewProps> = ({
             />}
           </section>
 
-          <HintPanel exerciseSlug={currentLesson.slug} lang={lang} />
+          <HintPanel exerciseSlug={currentLesson.slug} hints={block.hints[currentLesson.slug]} lang={lang} />
+          <LessonNotes
+            key={`${block.id}/${currentLesson.slug}`}
+            value={getNote(currentLesson.slug)}
+            onChange={(text) => onNoteChange(currentLesson.slug, text)}
+            lang={lang}
+          />
         </div>
       </div>
     </div>
